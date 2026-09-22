@@ -1,4 +1,5 @@
 import pytest
+from backend.app.llm.client import MockLLMClient
 from backend.app.policies.loader import load_sops
 from backend.app.policies.engine import DeterministicSOPEngine
 from backend.app.policies.models import SOPDefinition, SOPMatch, ConditionsBlock, ComparisonRule
@@ -128,6 +129,98 @@ class TestDeterministicSOPEngine:
         assert len(matches) > 0
         sop_ids = [m.sop_id for m in matches]
         assert "SOP-WALK-001" in sop_ids  # Should match walking in moderate heat
+
+    def test_benign_running_fixture_matches_baseline_outdoor_exercise_policy(self, engine):
+        """A benign running fixture should match the explicit baseline exercise SOP rather than falling through no-SOP."""
+        benign_weather = {
+            "temperature_2m": 28.2,
+            "humidity": 44,
+            "wind_speed_10m": 8.1,
+            "wind_gusts_10m": 19.1,
+            "precipitation": 0.0,
+            "precipitation_probability": 0,
+            "weather_condition": "clear",
+            "uv_index": 0,
+        }
+
+        matches = engine.match_all(
+            weather_facts=benign_weather,
+            activity="running",
+            category="outdoor_exercise",
+        )
+
+        assert any(m.sop_id == "SOP-BASE-EX-001" for m in matches)
+        selected, _ = engine.resolve(matches)
+        assert selected is not None
+        assert selected.sop_id == "SOP-BASE-EX-001"
+        assert selected.severity in {"low", "moderate"}
+
+    def test_jogging_paraphrase_normalizes_to_baseline_exercise_family(self, engine):
+        """Jogging paraphrases should normalize to the same outdoor-exercise family as running."""
+        benign_weather = {
+            "temperature_2m": 28.0,
+            "humidity": 46,
+            "wind_speed_10m": 7.5,
+            "wind_gusts_10m": 15.0,
+            "precipitation": 0.0,
+            "precipitation_probability": 0,
+            "weather_condition": "clear",
+            "uv_index": 1,
+        }
+
+        matches = engine.match_all(
+            weather_facts=benign_weather,
+            activity="running",
+            category="outdoor_exercise",
+        )
+
+        assert any(m.sop_id == "SOP-BASE-EX-001" for m in matches)
+
+    def test_benign_child_park_fixture_matches_baseline_leisure_policy(self, engine):
+        """A benign park visit with child user_group should match a normal outdoor-leisure baseline policy."""
+        benign_park_weather = {
+            "temperature_2m": 22.0,
+            "humidity": 53,
+            "wind_speed_10m": 7,
+            "wind_gusts_10m": 12,
+            "precipitation": 0.0,
+            "precipitation_probability": 5,
+            "weather_condition": "clear",
+            "uv_index": 1,
+        }
+
+        matches = engine.match_all(
+            weather_facts=benign_park_weather,
+            activity="park_visit",
+            category="recreation",
+            user_group="child",
+        )
+
+        assert any(m.sop_id == "SOP-BASE-LEISURE-001" for m in matches)
+
+    def test_leisure_park_match_requires_child_user_group(self, engine):
+        """Child park visits should match the leisure SOP using the normalized user_group field."""
+        warm_park_weather = {
+            "temperature": 30,
+            "humidity": 60,
+            "wind_speed": 8,
+            "air_quality_index": 42,
+            "weather_condition": "clear",
+            "solar_radiation": 700,
+            "precipitation": None,
+        }
+
+        matches = engine.match_all(
+            weather_facts=warm_park_weather,
+            activity="park_visit",
+            category="recreation",
+            user_group="child",
+        )
+
+        assert any(m.sop_id == "SOP-LEISURE-001" for m in matches)
+        selected, _ = engine.resolve(matches)
+        assert selected is not None
+        assert selected.sop_id == "SOP-LEISURE-001"
 
     # ===== NO SOP MATCH TESTS =====
 
@@ -535,6 +628,73 @@ class TestDeterministicSOPEngine:
         for match in matches:
             if match.sop_id == "SOP-GEN-001":
                 assert "STOP" in match.guidance or "IMMEDIATELY" in match.guidance
+
+    def test_benign_baseline_is_outscored_by_high_heat_hazard(self, engine):
+        """A baseline exercise policy must not win over a deterministically higher-risk heat policy."""
+        hot_weather = {
+            "temperature_2m": 35.0,
+            "humidity": 50,
+            "wind_speed_10m": 8,
+            "wind_gusts_10m": 14,
+            "precipitation": 0.0,
+            "precipitation_probability": 0,
+            "weather_condition": "clear",
+            "uv_index": 7,
+        }
+
+        matches = engine.match_all(
+            weather_facts=hot_weather,
+            activity="running",
+            category="outdoor_exercise",
+        )
+
+        selected, _ = engine.resolve(matches)
+        assert selected is not None
+        assert selected.sop_id in {"SOP-BASE-EX-001", "SOP-RUN-001", "SOP-GEN-002"}
+        assert selected.severity in {"high", "severe"}
+
+    @pytest.mark.asyncio
+    async def test_picnic_severe_weather_regression_fixture(self, engine):
+        """Controlled severe-weather picnic fixture should match the YAML picnic SOP and not rely on LLM-authored advice."""
+        client = MockLLMClient()
+        intent = await client.extract_intent("Would it be okay to have a picnic in Queenstown today?")
+
+        assert intent.activity == "picnic"
+        assert intent.category == "recreation"
+        assert intent.user_group == "general"
+        assert intent.location == "Queenstown"
+        assert intent.time_reference == "today"
+
+        severe_picnic_weather = {
+            "temperature": 18,
+            "humidity": 88,
+            "wind_speed": 36,
+            "wind_gusts": 52,
+            "air_quality_index": 55,
+            "weather_condition": "thunderstorm",
+            "precipitation": 12.5,
+            "precipitation_probability": 88,
+            "solar_radiation": 40,
+        }
+
+        matches = engine.match_all(
+            weather_facts=severe_picnic_weather,
+            activity=intent.activity,
+            category=intent.category,
+            user_group=intent.user_group,
+        )
+
+        picnic_match = next((m for m in matches if m.sop_id == "SOP-LEISURE-002"), None)
+        assert picnic_match is not None, "Picnic severe weather should match the dedicated leisure SOP"
+
+        selected, trace = engine.resolve(matches)
+        assert selected is not None
+        assert selected.sop_id == "SOP-LEISURE-002"
+        assert selected.severity == "severe"
+        assert selected.guidance == picnic_match.guidance
+        assert "Postpone the picnic" in selected.guidance
+        assert "thunderstorm" in selected.guidance.lower() or "severe weather" in selected.guidance.lower()
+        assert trace and "Selected SOP: SOP-LEISURE-002" in trace[0]
 
     # ===== YAML-DRIVEN POLICY LOADING TESTS =====
 

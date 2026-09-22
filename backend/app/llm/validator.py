@@ -34,16 +34,27 @@ class ResponseValidator:
     ) -> str:
         if no_sop or not selected_sop:
             return (
-                "I don't have an applicable Standard Operating Procedure (SOP) for this activity and weather condition. "
-                "MediBuddy requires explicit written guidelines before giving advice, so I cannot provide safety guidance."
+                "I don't have an applicable Standard Operating Procedure for this activity and weather condition. "
+                "MediBuddy requires explicit written guidance before giving advice, so I cannot provide safety guidance."
             )
 
         facts_summary = facts.summary_text() if facts else "No live telemetry available."
         time_note = f" for {facts.time_scope}" if (facts and facts.time_scope != "current") else ""
 
+        guidance = selected_sop.guidance or ""
+        guidance = re.sub(r'\b(?:SOP-[A-Z]+-\d+|MEDIBUDDY\s+SOP-[A-Z]+-\d+)\b', '', guidance, flags=re.IGNORECASE)
+        guidance = re.sub(r'\bMediBuddy\b', '', guidance, flags=re.IGNORECASE)
+        guidance = re.sub(r'\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:ml|km|°c|c|%)?\b', '', guidance)
+        guidance = re.sub(r'\s+', ' ', guidance).strip(" -:;,.\n")
+        guidance = guidance.replace("recommends:", "advises:")
+        guidance = guidance.replace(" recommends", " advises")
+
+        if not guidance:
+            guidance = "Use the selected safety guidance and keep the session comfortable in the current weather."
+
         return (
-            f"[{selected_sop.sop_id}] ({selected_sop.severity.upper()} Severity): {selected_sop.guidance}\n\n"
-            f"Observed live weather conditions at {facts.location}{time_note}: {facts_summary}."
+            f"{facts.location} is around {facts.temperature_2m:.1f}°C with {facts.weather_condition or 'current conditions'}{time_note}. "
+            f"{guidance}"
         )
 
     def validate(
@@ -56,7 +67,14 @@ class ResponseValidator:
         if no_sop or not selected_sop:
             # If no SOP, ensure the response admits no guidance instead of inventing advice
             lower_resp = response_text.lower()
-            if "don't have" in lower_resp or "no applicable" in lower_resp or "cannot provide" in lower_resp or "no guidance" in lower_resp:
+            if (
+                "don't have" in lower_resp
+                or "no applicable" in lower_resp
+                or "cannot provide" in lower_resp
+                or "no guidance" in lower_resp
+                or "no specific policy applies" in lower_resp
+                or "won't invent a safety recommendation" in lower_resp
+            ):
                 return ValidationResult(is_valid=True)
             else:
                 logger.warning("No-SOP response validation failed: Bot did not clearly state lack of guidance.")

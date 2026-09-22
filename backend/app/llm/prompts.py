@@ -3,8 +3,9 @@ from pydantic import BaseModel, Field
 
 
 class ParsedIntent(BaseModel):
-    activity: Optional[str] = Field(None, description="The specific outdoor activity mentioned (e.g., cycling, jogging, picnic, driving)")
-    category: Optional[str] = Field(None, description="General category: outdoor_exercise, travel_commute, vulnerable_groups, home_and_leisure")
+    activity: Optional[str] = Field(None, description="The specific outdoor activity mentioned (e.g., cycling, jogging, picnic, park_visit, photography)")
+    category: Optional[str] = Field(None, description="General category: outdoor_exercise, recreation, travel_commute, vulnerable_groups, home_and_leisure")
+    user_group: Optional[str] = Field("general", description="Who is outdoors: child, children, adult, senior, general")
     location: Optional[str] = Field(None, description="City or location name if mentioned")
     time_reference: Optional[str] = Field("current", description="Time period mentioned: today, this evening, tonight, tomorrow morning, etc.")
     is_outdoor_query: bool = Field(True, description="Whether this question is asking about outdoor safety or activities")
@@ -14,8 +15,9 @@ INTENT_EXTRACTION_SYSTEM_PROMPT = """You are an intent extraction engine for a w
 Your job is ONLY to extract structured entities from the user's message.
 Do NOT give any safety advice. Do NOT guess the weather.
 Extract:
-- activity: The specific outdoor activity (e.g., "cycling", "running", "picnic", "highway travel", "taking kid to park").
-- category: One of: "outdoor_exercise", "travel_commute", "vulnerable_groups", "home_and_leisure".
+- activity: The specific outdoor activity (e.g., "cycling", "running", "picnic", "park_visit", "photography", "highway travel").
+- category: One of: "outdoor_exercise", "recreation", "travel_commute", "vulnerable_groups", "home_and_leisure".
+- user_group: Normalize the participant to a simple group label: "child", "children", "adult", "senior", or "general".
 - location: The city/place name mentioned (e.g. "Bhopal", "Pune", "Delhi"). If none mentioned, return null.
 - time_reference: "current", "today", "this evening", "tonight", "tomorrow morning", etc.
 - is_outdoor_query: Set to true if the question relates to outdoor safety, travel, sports, leisure, or children/elderly outdoors. Set to false if it's purely indoor (e.g., "painting bedroom", "reading on couch").

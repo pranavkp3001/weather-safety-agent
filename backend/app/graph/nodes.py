@@ -79,6 +79,8 @@ async def resolve_session_context_node(state: AgentState) -> dict[str, Any]:
             intent.activity = prior_ctx.activity
         if not intent.category and prior_ctx and prior_ctx.category:
             intent.category = prior_ctx.category
+        if not intent.user_group and prior_ctx and prior_ctx.user_group:
+            intent.user_group = prior_ctx.user_group
 
     # Update session context (strictly WITHOUT weather facts)
     session_manager.update_context(
@@ -86,6 +88,7 @@ async def resolve_session_context_node(state: AgentState) -> dict[str, Any]:
         location=resolved_location,
         activity=intent.activity if intent else None,
         category=intent.category if intent else None,
+        user_group=intent.user_group if intent else None,
         time_reference=intent.time_reference if intent else None
     )
 
@@ -174,11 +177,13 @@ async def match_sops_node(state: AgentState) -> dict[str, Any]:
     category = intent.category if intent else None
     advisory_dict = advisory.to_dict() if advisory else None
 
+    user_group = getattr(intent, "user_group", None) if intent else None
     matches = sop_engine.match_all(
         weather_facts=facts.to_facts_dict(),
         activity=activity,
         category=category,
-        advisory=advisory_dict
+        advisory=advisory_dict,
+        user_group=user_group,
     )
 
     selected, trace = sop_engine.resolve(matches)
@@ -192,8 +197,24 @@ async def match_sops_node(state: AgentState) -> dict[str, Any]:
 
 
 async def handle_no_sop_node(state: AgentState) -> dict[str, Any]:
+    facts = state.get("weather_facts")
+    location = "your area"
+    weather_context = ""
+    if facts:
+        location = facts.location or location
+        temp = float(facts.temperature_2m)
+        wind = float(facts.wind_speed_10m)
+        precip_prob = float(facts.precipitation_probability)
+        condition = facts.weather_condition or "current conditions"
+        weather_context = (
+            f"\n\n{location} is currently {temp:.1f}°C with {condition}, winds around {wind:.1f} km/h, "
+            f"and {precip_prob:.0f}% precipitation probability."
+        )
+
     no_sop_msg = (
-        "I don't have a specific safety guideline for this activity and weather condition, so I can't give you a recommendation."
+        "No specific policy applies."
+        f"{weather_context}\n\n"
+        "WeatherBuddy doesn't currently have a safety policy covering this activity under these conditions, so I won't invent a safety recommendation."
     )
     return {
         "final_response": no_sop_msg,

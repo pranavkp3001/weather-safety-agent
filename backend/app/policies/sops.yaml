@@ -1,5 +1,80 @@
 version: "1.0"
 sops:
+  # BASELINE / NORMAL POLICY GROUP
+  - id: "SOP-BASE-EX-001"
+    name: "General Outdoor Exercise Baseline"
+    category: "General Outdoor Exercise"
+    applies_to:
+      - "cycling"
+      - "running"
+      - "walking"
+      - "jogging"
+      - "hiking"
+    severity: "low"
+    priority: 30
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 18
+          unit: "celsius"
+        - field: "temperature"
+          operator: "<="
+          value: 35
+          unit: "celsius"
+        - field: "weather_condition"
+          operator: "in"
+          value: ["clear", "cloudy"]
+        - field: "precipitation"
+          operator: "<="
+          value: 2
+          unit: "mm"
+        - field: "wind_speed"
+          operator: "<="
+          value: 25
+          unit: "kmh"
+    guidance: |
+      Current conditions fall within WeatherBuddy's normal outdoor-exercise guidance. This is a low-risk baseline range for active outdoor exercise, so the system is not issuing a restriction for this session.
+      1. Maintain a steady pace and stay well hydrated
+      2. Favor the cooler parts of the day when the session is longer
+      3. Continue to monitor conditions if the plan changes or the weather deteriorates
+    source: "WeatherBuddy baseline policy"
+
+  - id: "SOP-BASE-LEISURE-001"
+    name: "General Outdoor Leisure Baseline"
+    category: "Leisure"
+    applies_to:
+      - "park_visit"
+      - "picnic"
+      - "outdoor_photography"
+    severity: "low"
+    priority: 28
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 18
+          unit: "celsius"
+        - field: "temperature"
+          operator: "<="
+          value: 30
+          unit: "celsius"
+        - field: "weather_condition"
+          operator: "in"
+          value: ["clear", "cloudy"]
+        - field: "precipitation"
+          operator: "<="
+          value: 2
+          unit: "mm"
+    guidance: |
+      Current conditions fall within WeatherBuddy's normal outdoor-leisure guidance. This range is considered routine for a low-risk park, picnic, or outdoor leisure outing.
+      1. Keep a comfortable pace and stay hydrated
+      2. Use shade or a cooler window if the outing runs long
+      3. Continue monitoring the forecast if conditions begin to worsen
+    source: "WeatherBuddy baseline policy"
+
   # CYCLING CATEGORY (3 SOPs)
   - id: "SOP-CYC-001"
     name: "Cycling in High Heat"
@@ -98,7 +173,7 @@ sops:
 
   # RUNNING CATEGORY (3 SOPs)
   - id: "SOP-RUN-001"
-    name: "Running in Extreme Heat"
+    name: "Running in Elevated Heat"
     category: "Running"
     applies_to:
       - "running"
@@ -110,20 +185,19 @@ sops:
       rules:
         - field: "temperature"
           operator: ">="
-          value: 38
+          value: 35
           unit: "celsius"
         - field: "activity"
           operator: "=="
           value: "running"
     guidance: |
-      Extreme heat warning. MediBuddy SOP-RUN-001 recommends:
-      1. STRONGLY CONSIDER POSTPONING outdoor running
-      2. If running, do so only during early morning (before 6 AM) or late evening (after 8 PM)
-      3. Run slower pace and shorter distance
+      Elevated heat conditions are a significant risk for running. MediBuddy SOP-RUN-001 recommends:
+      1. Strongly consider postponing outdoor running
+      2. If running, do so only during early morning or late evening
+      3. Run slower and shorten the route
       4. Hydrate aggressively: 200-300ml water every 15 minutes
       5. Watch for heat exhaustion signs: dizziness, nausea, weakness
-      6. Run with a partner and inform someone of your route
-      7. Seek immediate medical attention if symptoms develop
+      6. Seek immediate medical attention if symptoms develop
     source: "American Heart Association Heat Safety"
 
   - id: "SOP-RUN-002"
@@ -155,8 +229,7 @@ sops:
       3. Wear moisture-wicking clothing
       4. Run in shaded areas when possible
       5. Monitor body temperature and take frequent breaks
-      6. Do not push for speed records during high humidity
-      7. Start slowly and listen to your body
+      6. Start slowly and listen to your body
     source: "Running USA Heat and Humidity Guidelines"
 
   - id: "SOP-RUN-003"
@@ -202,7 +275,7 @@ sops:
       8. Never run on black ice or suspicious patches
     source: "Winter Running Safety Association"
 
-  # WALKING CATEGORY (2 SOPs)
+  # WALKING CATEGORY (1 SOP)
   - id: "SOP-WALK-001"
     name: "Walking in Moderate Heat"
     category: "Walking"
@@ -235,37 +308,61 @@ sops:
       6. Watch for signs of heat fatigue: dizziness, nausea
     source: "WHO Physical Activity Guidelines"
 
-  - id: "SOP-WALK-002"
-    name: "Walking During Air Quality Emergency"
-    category: "Walking"
+  # LEISURE / FAMILY OUTDOOR COVERAGE (2 SOPs)
+  - id: "SOP-LEISURE-001"
+    name: "Park Visit in Warm Weather for Children"
+    category: "Leisure"
     applies_to:
-      - "walking"
-      - "hiking"
-    severity: "high"
-    priority: 100
+      - "park_visit"
+    severity: "moderate"
+    priority: 80
     conditions:
       operator: "AND"
       rules:
-        - field: "air_quality_index"
-          operator: ">"
-          value: 200
-          unit: "aqi"
+        - field: "temperature"
+          operator: ">="
+          value: 24
+          unit: "celsius"
         - field: "activity"
           operator: "=="
-          value: "walking"
+          value: "park_visit"
+        - field: "user_group"
+          operator: "=="
+          value: "child"
     guidance: |
-      Severe air quality emergency detected. MediBuddy SOP-WALK-002 recommends:
-      1. STRONGLY AVOID outdoor walking
-      2. Postpone all outdoor activities until air quality improves
-      3. Stay indoors with windows and doors closed
-      4. Use air purifiers indoors if available
-      5. If you must go outside, wear N95 or P100 respirator mask
-      6. Limit time outdoors to absolute minimum
-      7. Monitor air quality index hourly for improvement
-      8. Vulnerable populations (children, elderly, asthmatic) should remain indoors
-    source: "EPA Severe Air Quality Health Advisory"
+      Warm conditions are making a park visit less comfortable for children. MediBuddy SOP-LEISURE-001 recommends:
+      1. Keep any park time short and stick to shaded areas
+      2. Encourage frequent water breaks and a cool-down in shade
+      3. Use hats, sunscreen, and lightweight clothing
+      4. Consider moving the outing to a cooler part of the day
+      5. Watch for overheating signs such as flushed skin, dizziness, or unusual tiredness
+    source: "Pediatric Heat Safety Guidance"
 
-  # OUTDOOR EXERCISE GENERAL (2 SOPs)
+  - id: "SOP-LEISURE-002"
+    name: "Picnic in Severe Rain or Thunderstorm"
+    category: "Leisure"
+    applies_to:
+      - "picnic"
+    severity: "severe"
+    priority: 120
+    conditions:
+      operator: "OR"
+      rules:
+        - field: "weather_condition"
+          operator: "=="
+          value: "thunderstorm"
+        - field: "weather_condition"
+          operator: "=="
+          value: "severe_weather"
+    guidance: |
+      Severe weather is not suitable for a picnic. MediBuddy SOP-LEISURE-002 recommends:
+      1. Postpone the picnic until the weather clears and lightning is no longer active
+      2. Move the outing indoors or under a solid shelter
+      3. Avoid open grass, open water, or elevated picnic spots during storms
+      4. Keep drinks and food protected from heavy rain and strong winds
+    source: "Outdoor Leisure Safety Guidance"
+
+  # OUTDOOR EXERCISE GENERAL (4 SOPs)
   - id: "SOP-GEN-001"
     name: "Outdoor Exercise in Thunderstorm"
     category: "General Outdoor Exercise"
@@ -275,6 +372,9 @@ sops:
       - "walking"
       - "jogging"
       - "hiking"
+      - "park_visit"
+      - "picnic"
+      - "outdoor_photography"
     severity: "severe"
     priority: 120
     conditions:
@@ -347,7 +447,7 @@ sops:
     source: "CDC Extreme Heat and Outdoor Exercise"
 
   - id: "SOP-GEN-003"
-    name: "Persistent Rain Advisory for Outdoor Exercise"
+    name: "Persistent Rain Advisory for Outdoor Activity"
     category: "General Outdoor Exercise"
     applies_to:
       - "cycling"
@@ -355,6 +455,9 @@ sops:
       - "walking"
       - "jogging"
       - "hiking"
+      - "park_visit"
+      - "picnic"
+      - "outdoor_photography"
     severity: "moderate"
     priority: 98
     conditions:
@@ -390,6 +493,9 @@ sops:
       - "walking"
       - "jogging"
       - "hiking"
+      - "park_visit"
+      - "picnic"
+      - "outdoor_photography"
     severity: "severe"
     priority: 130
     conditions:

@@ -17,6 +17,7 @@ class SessionContext(BaseModel):
     location: Optional[LocationInfo] = None
     activity: Optional[str] = None
     category: Optional[str] = None
+    user_group: Optional[str] = None
     time_reference: Optional[str] = None
     turns: list[ConversationTurn] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time)
@@ -57,6 +58,7 @@ class SessionManager:
         location: Optional[LocationInfo] = None,
         activity: Optional[str] = None,
         category: Optional[str] = None,
+        user_group: Optional[str] = None,
         time_reference: Optional[str] = None,
     ) -> SessionContext:
         with self._lock:
@@ -67,6 +69,8 @@ class SessionManager:
                 ctx.activity = activity
             if category is not None:
                 ctx.category = category
+            if user_group is not None:
+                ctx.user_group = user_group
             if time_reference is not None:
                 ctx.time_reference = time_reference
             ctx.updated_at = time.time()

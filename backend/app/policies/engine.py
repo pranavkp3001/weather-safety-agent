@@ -62,6 +62,7 @@ class DeterministicSOPEngine:
         activity: Optional[str] = None,
         category: Optional[str] = None,
         advisory: Optional[dict[str, Any]] = None,
+        user_group: Optional[str] = None,
     ) -> list[SOPMatch]:
         """
         Match all SOPs that apply to current weather and activity context.
@@ -83,10 +84,10 @@ class DeterministicSOPEngine:
                 continue
 
             # Check conditions
-            matched, composite_score = self._conditions_match(sop.conditions, weather_facts, activity, advisory)
+            matched, composite_score = self._conditions_match(sop.conditions, weather_facts, activity, advisory, user_group)
             if matched:
                 # Build reasons for match
-                reasons = self._get_match_reasons(sop.conditions, weather_facts, activity, advisory)
+                reasons = self._get_match_reasons(sop.conditions, weather_facts, activity, advisory, user_group)
 
                 match = SOPMatch(
                     sop_id=sop.id,
@@ -151,7 +152,7 @@ class DeterministicSOPEngine:
         return selected, trace
 
     def _conditions_match(
-        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
+        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None, user_group: Optional[str] = None
     ) -> tuple[bool, Optional[float]]:
         """
         Evaluate if conditions block matches weather facts.
@@ -169,7 +170,7 @@ class DeterministicSOPEngine:
         if operator == "AND":
             # All rules must match
             for rule in conditions_block.rules or []:
-                if not self._rule_matches(rule, weather_facts, activity, advisory):
+                if not self._rule_matches(rule, weather_facts, activity, advisory, user_group):
                     return False, None
             return True, None
 
@@ -178,7 +179,7 @@ class DeterministicSOPEngine:
             if not conditions_block.rules:
                 return False, None
             for rule in conditions_block.rules:
-                if self._rule_matches(rule, weather_facts, activity, advisory):
+                if self._rule_matches(rule, weather_facts, activity, advisory, user_group):
                     return True, None
             return False, None
 
@@ -206,7 +207,7 @@ class DeterministicSOPEngine:
         return False, None
 
     def _rule_matches(
-        self, rule: ComparisonRule, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
+        self, rule: ComparisonRule, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None, user_group: Optional[str] = None
     ) -> bool:
         """
         Evaluate a single comparison rule against weather facts, advisory metadata, and activity.
@@ -224,6 +225,16 @@ class DeterministicSOPEngine:
                 return actual.lower() != str(value).lower()
             elif operator == "in":
                 return actual.lower() in [v.lower() for v in value]
+            return False
+
+        if field == "user_group":
+            actual = (user_group or "general").lower()
+            if operator == "==":
+                return actual == str(value).lower()
+            elif operator == "!=":
+                return actual != str(value).lower()
+            elif operator == "in":
+                return actual in [str(v).lower() for v in value]
             return False
 
         if advisory and field in advisory:
@@ -325,7 +336,12 @@ class DeterministicSOPEngine:
         return False
 
     def _get_match_reasons(
-        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
+        self,
+        conditions_block: Any,
+        weather_facts: dict[str, Any],
+        activity: Optional[str],
+        advisory: Optional[dict[str, Any]] = None,
+        user_group: Optional[str] = None,
     ) -> list[RuleMatchReason]:
         """
         Extract and document the specific reasons why an SOP matched.
@@ -342,15 +358,18 @@ class DeterministicSOPEngine:
 
             if field == "activity":
                 actual = activity or ""
-                matched = self._rule_matches(rule, weather_facts, activity, advisory)
+                matched = self._rule_matches(rule, weather_facts, activity, advisory, user_group)
+            elif field == "user_group":
+                actual = (user_group or "general").lower()
+                matched = self._rule_matches(rule, weather_facts, activity, advisory, user_group)
             elif advisory and field in advisory:
                 actual = advisory[field]
-                matched = self._rule_matches(rule, weather_facts, activity, advisory)
+                matched = self._rule_matches(rule, weather_facts, activity, advisory, user_group)
             else:
                 actual = self._resolve_fact(weather_facts, field)
                 if actual is None:
                     continue
-                matched = self._rule_matches(rule, weather_facts, activity, advisory)
+                matched = self._rule_matches(rule, weather_facts, activity, advisory, user_group)
 
             reason = RuleMatchReason(
                 field=field,

@@ -121,7 +121,7 @@ class WeatherFacts(BaseModel):
     def summary_text(self) -> str:
         condition_str = f", Condition: {self.weather_condition}" if self.weather_condition else ""
         return (
-            f"Temperature: {self.temperature_2m}°C, "
+            f"Temperature: {self.temperature_2m}\u00b0C, "
             f"Wind: {self.wind_speed_10m} km/h (gusts: {self.wind_gusts_10m} km/h), "
             f"Precipitation: {self.precipitation} mm ({self.precipitation_probability}%), "
             f"UV Index: {self.uv_index}, "
@@ -222,13 +222,16 @@ class WeatherService:
 
         # Check if time_reference targets evening/night/afternoon and hourly data is present
         target_index = None
-        if hourly and "time" in hourly and time_ref in ["this evening", "evening", "tonight", "afternoon", "tomorrow morning"]:
-            now_iso = current.get("time", "")
+        if hourly and "time" in hourly and time_ref in ["this evening", "evening", "tonight", "this night", "night", "afternoon", "tomorrow morning"]:
             times = hourly.get("time", [])
             for idx, t_str in enumerate(times):
                 try:
                     dt = datetime.fromisoformat(t_str)
-                    if "evening" in time_ref and 18 <= dt.hour <= 21:
+                    if "this night" in time_ref or "night" in time_ref:
+                        if 20 <= dt.hour <= 23:
+                            target_index = idx
+                            break
+                    elif "evening" in time_ref and 18 <= dt.hour <= 21:
                         target_index = idx
                         break
                     elif "tonight" in time_ref and 20 <= dt.hour <= 23:

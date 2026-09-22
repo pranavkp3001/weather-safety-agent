@@ -65,13 +65,27 @@ class MockLLMClient(BaseLLMClient):
         # Activity & Category detection with paraphrase matching
         activity = None
         category = None
+        user_group = "general"
+
+        if any(kw in msg for kw in ["daughter", "son", "child", "kid", "toddler", "children", "baby", "minor"]):
+            user_group = "child"
+        elif any(kw in msg for kw in ["adult", "man", "woman", "parent", "guardian"]):
+            user_group = "adult"
+        elif any(kw in msg for kw in ["senior", "elder", "grandparent", "older adult"]):
+            user_group = "senior"
 
         if any(kw in msg for kw in ["cycl", "bike", "bicycle", "pedal", "two-wheeler", "scooter"]):
             activity = "cycling"
             category = "outdoor_exercise"
+        elif any(kw in msg for kw in ["park", "playground", "sandbox", "park visit", "playground visit"]):
+            activity = "park_visit"
+            category = "recreation"
         elif any(kw in msg for kw in ["picnic", "lawn", "outing in park", "outdoor dining"]):
             activity = "picnic"
-            category = "home_and_leisure"
+            category = "recreation"
+        elif any(kw in msg for kw in ["photograph", "photo", "camera", "nature photography", "photoshoot", "photo shoot"]):
+            activity = "outdoor_photography"
+            category = "recreation"
         elif any(kw in msg for kw in ["run", "jog", "marathon", "sprint"]):
             activity = "running"
             category = "outdoor_exercise"
@@ -90,10 +104,10 @@ class MockLLMClient(BaseLLMClient):
 
         # Time reference detection
         time_ref = "current"
-        if "this evening" in msg or "evening" in msg:
+        if "this night" in msg or "tonight" in msg or "night" in msg:
+            time_ref = "this night"
+        elif "this evening" in msg or "evening" in msg:
             time_ref = "this evening"
-        elif "tonight" in msg:
-            time_ref = "tonight"
         elif "tomorrow morning" in msg or "morning" in msg:
             time_ref = "tomorrow morning"
         elif "today" in msg:
@@ -121,6 +135,7 @@ class MockLLMClient(BaseLLMClient):
         return ParsedIntent(
             activity=activity,
             category=category,
+            user_group=user_group,
             location=location,
             time_reference=time_ref,
             is_outdoor_query=True
@@ -141,10 +156,10 @@ class MockLLMClient(BaseLLMClient):
             return "I can't provide a safe recommendation without live weather data."
 
         location = facts.location or "your area"
-        temp = facts.temperature_2m
-        wind = facts.wind_speed_10m
+        temp = float(facts.temperature_2m)
+        wind = float(facts.wind_speed_10m)
+        precip_pct = float(facts.precipitation_probability or 0.0)
         cond = facts.weather_condition or "current"
-        precip_pct = facts.precipitation_probability
 
         if cond == "clear":
             weather_phrase = "clear skies"
@@ -161,33 +176,138 @@ class MockLLMClient(BaseLLMClient):
         else:
             weather_phrase = "current conditions"
 
-        base_response = f"{location} is currently {temp}°C with {weather_phrase}, light wind, and no rain."
+        temp_text = f"{temp:.1f}\u00b0C"
+
+        query_lower = query.lower()
+        if "thunderstorm warning" in query_lower or "during thunderstorm" in query_lower or "severe weather warning" in query_lower:
+            if "run" in query_lower or "jog" in query_lower:
+                activity_label = "running"
+            elif "walk" in query_lower:
+                activity_label = "walking"
+            elif "cycl" in query_lower or "bike" in query_lower or "bicycle" in query_lower:
+                activity_label = "cycling"
+            elif "park" in query_lower or "child" in query_lower:
+                activity_label = "the park visit"
+            elif "picnic" in query_lower:
+                activity_label = "the picnic"
+            elif "photograph" in query_lower or "photo" in query_lower:
+                activity_label = "outdoor photography"
+            else:
+                activity_label = "this activity"
+            return (
+                f"{location} is around {temp_text} with {weather_phrase}. "
+                f"Do not continue {activity_label} outdoors during active lightning and severe weather. "
+                "Seek shelter immediately and wait for the storm to pass before going outside again."
+            )
+
         if no_sop or not selected_sop:
-            return f"Yes, it looks okay right now. {base_response}"
+            return (
+                "No specific policy applies.\n\n"
+                f"{location} is currently {temp_text} with {weather_phrase}, winds around {wind:.1f} km/h, "
+                f"and {precip_pct:.0f}% precipitation probability.\n\n"
+                "WeatherBuddy doesn't currently have a safety policy covering this activity under these conditions, so I won't invent a safety recommendation."
+            )
 
-        guidance_lines = [
-            re.sub(r'^\d+\.\s*', '', line.strip())
-            for line in selected_sop.guidance.splitlines()
-            if line.strip() and line.strip()[0].isdigit()
-        ]
+        if cond in {"thunderstorm", "severe_weather"}:
+            if "run" in query_lower or "jog" in query_lower:
+                activity_label = "running"
+            elif "walk" in query_lower:
+                activity_label = "walking"
+            elif "cycl" in query_lower or "bike" in query_lower or "bicycle" in query_lower:
+                activity_label = "cycling"
+            elif "park" in query_lower or "child" in query_lower:
+                activity_label = "the park visit"
+            elif "picnic" in query_lower:
+                activity_label = "the picnic"
+            elif "photograph" in query_lower or "photo" in query_lower:
+                activity_label = "outdoor photography"
+            else:
+                activity_label = "this activity"
+            return (
+                f"{location} is around {temp_text} with {weather_phrase}. "
+                f"Do not continue {activity_label} outdoors during active lightning and severe weather. "
+                "Seek shelter immediately and wait for the storm to pass before going outside again."
+            )
 
-        # Keep the answer brief and grounded in the selected SOP without exposing internal IDs.
-        guidance_text = next(
-            (
-                text
-                for text in guidance_lines
-                if "call emergency services" not in text.lower()
-                and "911" not in text
-                and "seek immediate medical attention" not in text.lower()
-            ),
-            "Keep the session short and avoid the hottest part of the day.",
+        guidance_text = (selected_sop.guidance or "").strip()
+        guidance_lines = []
+        for raw_line in guidance_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            line = re.sub(r'\b(?:SOP-[A-Z]+-\d+|MEDIBUDDY\s+SOP-[A-Z]+-\d+)\b', '', line, flags=re.IGNORECASE)
+            line = re.sub(r'\bMediBuddy\b', '', line, flags=re.IGNORECASE)
+            line = re.sub(r'\([^)]*\d[^)]*\)', '', line)
+            line = re.sub(r'\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:ml|km|°c|c|%)?\b', '', line)
+            line = re.sub(r'\s+', ' ', line).strip(" -:;,.\n")
+            if line:
+                guidance_lines.append(line)
+
+        summary_candidates = []
+        for line in guidance_lines:
+            lowered = line.lower()
+            if "recommends" in lowered or "sop" in lowered or "medibuddy" in lowered:
+                continue
+            summary_candidates.append(line)
+
+        summary = summary_candidates[0] if summary_candidates else "This weather requires caution for the selected activity."
+        action_lines = []
+        for line in guidance_lines:
+            lowered = line.lower()
+            if "recommends" in lowered or "sop" in lowered or "medibuddy" in lowered or line == summary:
+                continue
+            action_lines.append(line)
+            if len(action_lines) >= 2:
+                break
+
+        def _format_guidance_sentence(text: str) -> str:
+            cleaned = text.strip().rstrip(" .;:!")
+            if not cleaned:
+                return ""
+            if cleaned.endswith((".", "!", "?")):
+                return cleaned
+            return f"{cleaned}."
+
+        recommendation = " ".join(
+            _format_guidance_sentence(line) for line in action_lines
+        ) if action_lines else summary
+
+        if "run" in query_lower or "jog" in query_lower:
+            activity_label = "running"
+        elif "walk" in query_lower:
+            activity_label = "walking"
+        elif "cycl" in query_lower or "bike" in query_lower or "bicycle" in query_lower:
+            activity_label = "cycling"
+        elif "park" in query_lower or "child" in query_lower:
+            activity_label = "the park visit"
+        elif "picnic" in query_lower:
+            activity_label = "the picnic"
+        elif "photograph" in query_lower or "photo" in query_lower:
+            activity_label = "outdoor photography"
+        else:
+            activity_label = "this activity"
+
+        time_scope = (facts.time_scope or "current").lower()
+        if "this evening" in query_lower or "evening" in query_lower:
+            time_phrase = " this evening"
+        elif "this night" in query_lower or "tonight" in query_lower or "night" in query_lower:
+            time_phrase = " this night"
+        elif time_scope in {"today", "current", "right now"}:
+            time_phrase = ""
+        elif time_scope in {"this evening", "evening"}:
+            time_phrase = " this evening"
+        elif time_scope in {"this night", "tonight", "night"}:
+            time_phrase = " this night"
+        elif time_scope == "tomorrow morning":
+            time_phrase = " tomorrow morning"
+        else:
+            time_phrase = f" {time_scope}"
+
+        response = (
+            f"{location} is around {temp_text} with {weather_phrase}{time_phrase}. "
+            f"For {activity_label}, {summary}. {recommendation}"
         )
-
-        if selected_sop.severity.lower() in {"high", "severe"}:
-            return f"It is best to keep this activity short and avoid the hottest part of the day. {base_response}"
-        elif selected_sop.severity.lower() == "moderate":
-            return f"Take it easy and watch the conditions. {base_response}"
-        return f"This looks generally manageable for a short session. {base_response}"
+        return response.strip()
 
 
 class GeminiLLMClient(BaseLLMClient):
@@ -255,7 +375,10 @@ class GeminiLLMClient(BaseLLMClient):
 
         if no_sop or not selected_sop:
             return (
-                "I don't have a specific safety guideline for this activity and weather condition, so I can't give you a recommendation."
+                "No specific policy applies.\n\n"
+                f"{location} is currently {temp_text} with {weather_phrase}, winds around {float(wind):.1f} km/h, "
+                f"and {float(precip_pct):.0f}% precipitation probability.\n\n"
+                "WeatherBuddy doesn't currently have a safety policy covering this activity under these conditions, so I won't invent a safety recommendation."
             )
 
         if not self.client:
