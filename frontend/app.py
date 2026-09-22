@@ -27,6 +27,8 @@ if "last_question" not in st.session_state:
     st.session_state.last_question = ""
 if "sop_panel_open" not in st.session_state:
     st.session_state.sop_panel_open = False
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 
 def reset_session():
@@ -34,6 +36,7 @@ def reset_session():
     st.session_state.result = None
     st.session_state.last_question = ""
     st.session_state.sop_panel_open = False
+    st.session_state.chat_history = []
 
 
 session_id = st.session_state.session_id
@@ -48,6 +51,8 @@ EXAMPLE_PROMPTS = [
 
 def query_backend(prompt: str):
     current_session_id = st.session_state.get("session_id")
+    # Append user message to chat history
+    st.session_state.chat_history.append({"role": "user", "content": prompt})
     try:
         response = httpx.post(
             CHAT_ENDPOINT,
@@ -55,9 +60,12 @@ def query_backend(prompt: str):
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        st.session_state.result = response.json()
+        result = response.json()
+        st.session_state.result = result
+        # Append assistant response to chat history
+        st.session_state.chat_history.append({"role": "assistant", "content": result})
     except Exception as exc:
-        st.session_state.result = {
+        error_result = {
             "response": f"The backend is unavailable right now. Please try again. ({exc})",
             "sop_id": None,
             "sop_name": None,
@@ -67,6 +75,8 @@ def query_backend(prompt: str):
             "decision_trace": [],
             "weather_facts": None,
         }
+        st.session_state.result = error_result
+        st.session_state.chat_history.append({"role": "assistant", "content": error_result})
 
 
 def safe_text(value, fallback="Unavailable"):
@@ -249,6 +259,119 @@ def render_prompt_form():
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+def render_assistant_message(result: dict, question: str):
+    """Render a single assistant response message."""
+    weather = result.get("weather_facts") or {}
+    location = escape(safe_text(weather.get("location"), "Unavailable"))
+    time_scope = escape(safe_text(weather.get("time_scope"), "Unavailable"))
+    weather_condition = escape(safe_text(weather.get("weather_condition"), "Unavailable"))
+    temp = weather.get("temperature_2m")
+    precipitation = weather.get("precipitation_probability")
+    wind = weather.get("wind_speed_10m")
+    severity = str(result.get("severity") or "").lower()
+    activity_label = get_activity_label(question)
+
+    metric_cards = [
+        ("Temperature", "thermostat", format_weather_value(temp, "°C") if temp is not None else "Unavailable", "text-tertiary"),
+        ("Conditions", "filter_drama", weather_condition.title() if weather_condition and weather_condition != "Unavailable" else "Unavailable", "text-primary"),
+        ("Rain Probability", "water_drop", format_weather_value(precipitation, "%") if precipitation is not None else "Unavailable", "text-primary-container"),
+        ("Wind", "air", format_weather_value(wind, " km/h") if wind is not None else "Unavailable", "text-outline"),
+    ]
+
+    recommendation = escape((result.get("response") or "No response received."))
+    status_text = escape(get_status_label(severity))
+    has_policy = bool(result.get("sop_id") or result.get("sop_name"))
+    status_label = "NO POLICY APPLICABLE" if not has_policy else (status_text or "GUIDANCE AVAILABLE")
+    sop_label = escape(result.get("sop_name") or result.get("sop_id") or "No policy applicable")
+    policy_condition = "No matching policy condition returned by the backend."
+    trace_values = result.get("decision_trace") or []
+    if trace_values:
+        policy_condition = "<br>".join(escape(str(item)) for item in trace_values)
+
+    st.markdown(
+        f"""
+        <div class="assistant-message">
+          <div class="assistant-header">
+            <span class="material-symbols-outlined assistant-avatar">cloud_sync</span>
+            <span class="assistant-name">WeatherBuddy</span>
+          </div>
+          <div class="assistant-content">
+            <div class="assistant-meta">
+              <span class="material-symbols-outlined">location_on</span>
+              <span>{location}</span>
+              <span class="meta-separator">·</span>
+              <span>{escape(time_scope.title())}</span>
+              <span class="meta-separator">·</span>
+              <span>{escape(activity_label)}</span>
+            </div>
+            <div class="assistant-metrics">
+              {''.join(f'''<div class="assistant-metric"><span class="assistant-metric-label">{escape(label)}</span><span class="assistant-metric-value">{escape(value)}</span></div>''' for label, _, value, _ in metric_cards)}
+            </div>
+            <div class="assistant-recommendation">
+              <div class="assistant-verdict { 'no-policy' if not has_policy else '' }">
+                <span class="material-symbols-outlined">{ 'info' if not has_policy else 'check_circle' }</span>
+                <span>{status_label}</span>
+              </div>
+              <p class="assistant-copy">{recommendation}</p>
+            </div>
+            <details class="assistant-audit">
+              <summary>Why this recommendation?</summary>
+              <div class="assistant-audit-content">
+                <div class="assistant-audit-grid">
+                  <div class="assistant-audit-item"><div class="assistant-audit-label">Policy Applied</div><div class="assistant-audit-value">{sop_label}</div></div>
+                  <div class="assistant-audit-item"><div class="assistant-audit-label">Severity Assessment</div><div class="assistant-severity-box"><span class="material-symbols-outlined">check_circle</span><span>{status_text or 'No policy applicable'}</span></div></div>
+                  <div class="assistant-audit-item wide"><div class="assistant-audit-label">Weather Facts</div><div class="assistant-audit-value-small">Precipitation: {escape(format_weather_value(precipitation, '%') if precipitation is not None else 'Unavailable')} · Temperature: {escape(format_weather_value(temp, '°C') if temp is not None else 'Unavailable')} · Wind: {escape(format_weather_value(wind, ' km/h') if wind is not None else 'Unavailable')}</div></div>
+                  <div class="assistant-audit-item wide">
+                    <div class="assistant-audit-label">Matched Policy Conditions</div>
+                    <div class="assistant-match-row"><span class="material-symbols-outlined">task_alt</span><span>{policy_condition}</span></div>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_conversation():
+    """Render the chat conversation panel."""
+    chat_history = st.session_state.get("chat_history", [])
+    st.markdown('<div class="chat-panel">', unsafe_allow_html=True)
+    if not chat_history:
+        # Empty state
+        st.markdown(
+            """
+            <div class="chat-empty-state">
+              <span class="material-symbols-outlined">cloud_sync</span>
+              <p>Ask WeatherBuddy about an outdoor plan.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        # Render messages
+        for i, msg in enumerate(chat_history):
+            if msg["role"] == "user":
+                st.markdown(
+                    f"""
+                    <div class="user-message">
+                      <div class="user-bubble">{escape(msg["content"])}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            elif msg["role"] == "assistant":
+                # Get the corresponding user question for activity label
+                user_question = ""
+                for j in range(i - 1, -1, -1):
+                    if chat_history[j]["role"] == "user":
+                        user_question = chat_history[j]["content"]
+                        break
+                render_assistant_message(msg["content"], user_question)   
+    st.markdown('</div>', unsafe_allow_html=True)
+
 def render_result():
     result = st.session_state.result
     if not result:
@@ -341,7 +464,7 @@ def main():
         }
         .main .block-container {
             max-width: 1050px !important;
-            padding-top: 0.5rem !important;
+            padding-top: 0 !important;
             padding-left: 2rem !important;
             padding-right: 2rem !important;
             padding-bottom: 0 !important;
@@ -356,7 +479,7 @@ def main():
         .stApp > header {
             display: none !important;
         }
-        .main .block-container {
+        section.main {
             padding-top: 0 !important;
         }
         .app-header {
@@ -995,6 +1118,274 @@ def main():
                 display: none;
             }
         }
+        .chat-panel {
+            background: white;
+            border: 1px solid rgba(119,117,135,0.12);
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(15,23,42,0.04);
+            padding: 1.25rem;
+            margin-top: 0.75rem;
+            max-height: 65vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .chat-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            color: #777587;
+            text-align: center;
+            padding: 2rem;
+        }
+        .chat-empty-state .material-symbols-outlined {
+            font-size: 48px;
+            color: #4d44e3;
+            opacity: 0.4;
+            margin-bottom: 0.75rem;
+        }
+        .chat-empty-state p {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 500;
+        }
+        .user-message {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .user-bubble {
+            max-width: 75%;
+            background: linear-gradient(135deg, #4f46e5, #4338ca);
+            color: white;
+            border-radius: 18px 18px 4px 18px;
+            padding: 0.75rem 1rem;
+            font-size: 14px;
+            line-height: 1.5;
+            box-shadow: 0 2px 8px rgba(79,70,229,0.2);
+        }
+        .assistant-message {
+            background: rgba(255,255,255,0.96);
+            border: 1px solid rgba(119,117,135,0.12);
+            border-radius: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            overflow: hidden;
+        }
+        .assistant-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            background: rgba(242,243,246,0.5);
+            border-bottom: 1px solid rgba(119,117,135,0.1);
+        }
+        .assistant-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: #4f46e5;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        .assistant-name {
+            font-weight: 600;
+            color: #1a1c1e;
+            font-size: 14px;
+        }
+        .assistant-content {
+            padding: 1rem;
+        }
+        .assistant-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: #464555;
+            font-size: 12px;
+            margin-bottom: 0.75rem;
+        }
+        .assistant-meta .material-symbols-outlined {
+            font-size: 16px;
+            color: #4d44e3;
+        }
+        .meta-separator {
+            opacity: 0.4;
+        }
+        .assistant-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .assistant-metric {
+            background: rgba(248,249,251,0.9);
+            border: 1px solid rgba(119,117,135,0.12);
+            border-radius: 10px;
+            padding: 0.6rem 0.75rem;
+        }
+        .assistant-metric-label {
+            display: block;
+            color: #464555;
+            font-size: 10px;
+            line-height: 14px;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .assistant-metric-value {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-size: 22px;
+            line-height: 28px;
+            letter-spacing: -0.02em;
+            font-weight: 600;
+            color: #1a1c1e;
+        }
+        .assistant-recommendation {
+            margin-bottom: 0.75rem;
+        }
+        .assistant-verdict {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(133,248,196,0.32);
+            border: 1px solid rgba(0,108,74,0.08);
+            color: #005137;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }
+        .assistant-verdict.no-policy {
+            background: rgba(243,244,246,0.92);
+            border-color: rgba(119,117,135,0.2);
+            color: #374151;
+        }
+        .assistant-verdict .material-symbols-outlined {
+            font-size: 14px;
+        }
+        .assistant-copy {
+            margin: 0;
+            color: #1a1c1e;
+            font-size: 14px;
+            line-height: 1.7;
+            font-weight: 500;
+        }
+        .assistant-audit {
+            background: rgba(242,243,246,0.5);
+            border-top: 1px solid rgba(119,117,135,0.1);
+            border-radius: 0 0 14px 14px;
+            margin: 0 -1rem -1rem;
+            padding: 0.9rem 1rem 1rem;
+        }
+        .assistant-audit summary {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: #4d44e3;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            list-style: none;
+        }
+        .assistant-audit summary::-webkit-details-marker {
+            display: none;
+        }
+        .assistant-audit summary::before {
+            content: "expand_more";
+            font-family: "Material Symbols Outlined";
+            font-size: 16px;
+            font-weight: 400;
+            display: inline-block;
+            transform: rotate(-90deg);
+        }
+        .assistant-audit[open] > summary::before {
+            transform: rotate(0deg);
+        }
+        .assistant-audit-content {
+            margin-top: 0.75rem;
+        }
+        .assistant-audit-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.6rem;
+        }
+        .assistant-audit-item {
+            background: rgba(255,255,255,0.96);
+            border: 1px solid rgba(119,117,135,0.15);
+            border-radius: 8px;
+            padding: 0.6rem 0.7rem;
+        }
+        .assistant-audit-item.wide {
+            grid-column: span 2;
+        }
+        .assistant-audit-label {
+            color: #464555;
+            font-size: 10px;
+            line-height: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+        .assistant-audit-value {
+            color: #1a1c1e;
+            font-size: 14px;
+            line-height: 19px;
+            font-weight: 600;
+        }
+        .assistant-severity-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.15rem 0.45rem;
+            border-radius: 999px;
+            background: rgba(133,248,196,0.28);
+            color: #005137;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .assistant-audit-value-small,
+        .assistant-match-row {
+            color: #464555;
+            font-size: 12px;
+            line-height: 17px;
+        }
+        .assistant-match-row {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: #006c4a;
+            font-weight: 600;
+        }
+        .assistant-match-row .material-symbols-outlined {
+            font-size: 14px;
+        }
+        @media (max-width: 900px) {
+            .assistant-metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .assistant-audit-grid {
+                grid-template-columns: 1fr;
+            }
+            .assistant-audit-item.wide {
+                grid-column: span 1;
+            }
+        }
+        @media (max-width: 640px) {
+            .assistant-metrics {
+                grid-template-columns: 1fr;
+            }
+            .user-bubble {
+                max-width: 85%;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1002,8 +1393,8 @@ def main():
 
     render_header()
     render_hero()
+    render_conversation()
     render_prompt_form()
-    render_result()
 
 
 if __name__ == "__main__":
