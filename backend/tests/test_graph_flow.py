@@ -94,7 +94,7 @@ async def test_graph_flow_no_sop_indoor_query_branch():
     result = await weather_bot_graph.ainvoke(initial_state)
 
     assert result["error_type"] == "no_sop"
-    assert "don't have an applicable" in result["final_response"].lower()
+    assert result["final_response"] == "I don't have a specific safety guideline for this activity and weather condition, so I can't give you a recommendation."
 
 
 @pytest.mark.asyncio

@@ -193,8 +193,7 @@ async def match_sops_node(state: AgentState) -> dict[str, Any]:
 
 async def handle_no_sop_node(state: AgentState) -> dict[str, Any]:
     no_sop_msg = (
-        "I don't have an applicable Standard Operating Procedure (SOP) for this activity and weather condition. "
-        "MediBuddy policy requires explicit written guidelines before giving advice, so I cannot provide safety guidance for this request."
+        "I don't have a specific safety guideline for this activity and weather condition, so I can't give you a recommendation."
     )
     return {
         "final_response": no_sop_msg,

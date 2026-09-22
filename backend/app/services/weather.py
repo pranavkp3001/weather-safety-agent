@@ -73,6 +73,9 @@ def normalize_weather_condition(weather_code: int) -> Optional[str]:
 class AdvisorySignal(BaseModel):
     advisory_active: bool = False
     advisory_category: Optional[str] = None
+    advisory_type: Optional[str] = None
+    system_type: Optional[str] = None
+    rainfall_intensity: Optional[str] = None
     advisory_title: Optional[str] = None
     source: Optional[str] = None
 
@@ -80,6 +83,9 @@ class AdvisorySignal(BaseModel):
         return {
             "advisory_active": self.advisory_active,
             "advisory_category": self.advisory_category,
+            "advisory_type": self.advisory_type,
+            "system_type": self.system_type,
+            "rainfall_intensity": self.rainfall_intensity,
             "advisory_title": self.advisory_title,
             "source": self.source,
         }

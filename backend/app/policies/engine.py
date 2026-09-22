@@ -83,10 +83,10 @@ class DeterministicSOPEngine:
                 continue
 
             # Check conditions
-            matched, composite_score = self._conditions_match(sop.conditions, weather_facts, activity)
+            matched, composite_score = self._conditions_match(sop.conditions, weather_facts, activity, advisory)
             if matched:
                 # Build reasons for match
-                reasons = self._get_match_reasons(sop.conditions, weather_facts, activity)
+                reasons = self._get_match_reasons(sop.conditions, weather_facts, activity, advisory)
 
                 match = SOPMatch(
                     sop_id=sop.id,
@@ -151,7 +151,7 @@ class DeterministicSOPEngine:
         return selected, trace
 
     def _conditions_match(
-        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str]
+        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
     ) -> tuple[bool, Optional[float]]:
         """
         Evaluate if conditions block matches weather facts.
@@ -169,7 +169,7 @@ class DeterministicSOPEngine:
         if operator == "AND":
             # All rules must match
             for rule in conditions_block.rules or []:
-                if not self._rule_matches(rule, weather_facts, activity):
+                if not self._rule_matches(rule, weather_facts, activity, advisory):
                     return False, None
             return True, None
 
@@ -178,7 +178,7 @@ class DeterministicSOPEngine:
             if not conditions_block.rules:
                 return False, None
             for rule in conditions_block.rules:
-                if self._rule_matches(rule, weather_facts, activity):
+                if self._rule_matches(rule, weather_facts, activity, advisory):
                     return True, None
             return False, None
 
@@ -206,10 +206,10 @@ class DeterministicSOPEngine:
         return False, None
 
     def _rule_matches(
-        self, rule: ComparisonRule, weather_facts: dict[str, Any], activity: Optional[str]
+        self, rule: ComparisonRule, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
     ) -> bool:
         """
-        Evaluate a single comparison rule against weather facts and activity.
+        Evaluate a single comparison rule against weather facts, advisory metadata, and activity.
         """
         field = rule.field
         operator = rule.operator
@@ -226,11 +226,14 @@ class DeterministicSOPEngine:
                 return actual.lower() in [v.lower() for v in value]
             return False
 
-        # Get actual value from weather facts (missing facts are never invented)
-        actual = self._resolve_fact(weather_facts, field)
-        if actual is None:
-            logger.warning(f"Weather fact field '{field}' not found in weather data")
-            return False
+        if advisory and field in advisory:
+            actual = advisory[field]
+        else:
+            # Get actual value from weather facts (missing facts are never invented)
+            actual = self._resolve_fact(weather_facts, field)
+            if actual is None:
+                logger.warning(f"Weather fact field '{field}' not found in weather data or advisory metadata")
+                return False
 
         # Compare based on operator
         if operator == ">":
@@ -322,7 +325,7 @@ class DeterministicSOPEngine:
         return False
 
     def _get_match_reasons(
-        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str]
+        self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str], advisory: Optional[dict[str, Any]] = None
     ) -> list[RuleMatchReason]:
         """
         Extract and document the specific reasons why an SOP matched.
@@ -339,12 +342,15 @@ class DeterministicSOPEngine:
 
             if field == "activity":
                 actual = activity or ""
-                matched = self._rule_matches(rule, weather_facts, activity)
+                matched = self._rule_matches(rule, weather_facts, activity, advisory)
+            elif advisory and field in advisory:
+                actual = advisory[field]
+                matched = self._rule_matches(rule, weather_facts, activity, advisory)
             else:
                 actual = self._resolve_fact(weather_facts, field)
                 if actual is None:
                     continue
-                matched = self._rule_matches(rule, weather_facts, activity)
+                matched = self._rule_matches(rule, weather_facts, activity, advisory)
 
             reason = RuleMatchReason(
                 field=field,

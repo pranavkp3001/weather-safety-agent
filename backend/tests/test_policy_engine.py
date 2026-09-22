@@ -2,6 +2,7 @@ import pytest
 from backend.app.policies.loader import load_sops
 from backend.app.policies.engine import DeterministicSOPEngine
 from backend.app.policies.models import SOPDefinition, SOPMatch, ConditionsBlock, ComparisonRule
+from backend.app.services.weather import AdvisorySignal
 
 
 class TestDeterministicSOPEngine:
@@ -391,6 +392,110 @@ class TestDeterministicSOPEngine:
         )
 
         assert "SOP-GEN-002" in [m.sop_id for m in matches]
+
+    def test_fuzzy_advisory_sop_matches_structured_qualitative_facts(self, engine):
+        """Regression fixture: a qualitative rain advisory should match the fuzzy non-numeric SOP."""
+        weather = {
+            "temperature_2m": 24.0,
+            "weather_condition": "rain",
+            "precipitation": 18.0,
+            "precipitation_probability": 90,
+            "wind_speed_10m": 12,
+        }
+        advisory = AdvisorySignal(
+            advisory_active=True,
+            advisory_category="rain",
+            advisory_type="persistent_rain_advisory",
+            rainfall_intensity="moderate_to_heavy",
+            advisory_title="Persistent rain advisory",
+            source="deterministic-regression-fixture",
+        )
+
+        matches = engine.match_all(
+            weather_facts=weather,
+            activity="cycling",
+            category="outdoor_exercise",
+            advisory=advisory.to_dict(),
+        )
+
+        assert any(m.sop_id == "SOP-GEN-003" for m in matches)
+
+    def test_severe_low_pressure_advisory_fixture_applies_across_activities(self, engine):
+        """Regression fixture: authoritative low-pressure/cyclonic heavy rain advisory must override normal SOPs."""
+        advisory = AdvisorySignal(
+            advisory_active=True,
+            advisory_category="severe_weather",
+            advisory_type="low_pressure_or_cyclonic_system",
+            rainfall_intensity="heavy_to_very_heavy",
+            advisory_title="Low-pressure system with heavy to very heavy rain",
+            source="deterministic-regression-fixture",
+        )
+        severe_weather = {
+            "temperature_2m": 27.0,
+            "weather_condition": "rain",
+            "precipitation": 45.0,
+            "precipitation_probability": 95,
+            "wind_speed_10m": 18,
+        }
+
+        for activity in ["cycling", "running"]:
+            matches = engine.match_all(
+                weather_facts=severe_weather,
+                activity=activity,
+                category="outdoor_exercise",
+                advisory=advisory.to_dict(),
+            )
+            assert any(m.sop_id == "SOP-GEN-004" for m in matches)
+            selected, _ = engine.resolve(matches)
+            assert selected is not None
+            assert selected.sop_id == "SOP-GEN-004"
+            assert selected.severity == "severe"
+
+    def test_query_text_alone_does_not_create_severe_low_pressure_advisory(self, engine):
+        """Only an explicit advisory signal may produce the severe system SOP; query text alone cannot."""
+        weather = {
+            "temperature_2m": 27.0,
+            "weather_condition": "rain",
+            "precipitation": 45.0,
+            "precipitation_probability": 95,
+            "wind_speed_10m": 18,
+        }
+
+        matches = engine.match_all(
+            weather_facts=weather,
+            activity="cycling",
+            category="outdoor_exercise",
+            advisory=None,
+        )
+
+        assert all(m.sop_id != "SOP-GEN-004" for m in matches)
+
+    def test_ordinary_heavy_rain_without_authoritative_advisory_is_not_a_low_pressure_system(self, engine):
+        """Numeric heavy rain without authoritative advisory metadata should not be misclassified as a cyclonic system."""
+        weather = {
+            "temperature_2m": 28.0,
+            "weather_condition": "rain",
+            "precipitation": 40.0,
+            "precipitation_probability": 85,
+            "wind_speed_10m": 12,
+        }
+        advisory = AdvisorySignal(
+            advisory_active=False,
+            advisory_category="rain",
+            advisory_type="low_pressure_or_cyclonic_system",
+            rainfall_intensity="heavy_to_very_heavy",
+            advisory_title="Not active",
+            source="deterministic-regression-fixture",
+        )
+
+        matches = engine.match_all(
+            weather_facts=weather,
+            activity="walking",
+            category="outdoor_exercise",
+            advisory=advisory.to_dict(),
+        )
+
+        assert all(m.sop_id != "SOP-GEN-004" for m in matches)
 
     def test_composite_score_calculation(self, engine, sample_weather_icy):
         """Test composite score penalty calculation."""

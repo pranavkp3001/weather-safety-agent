@@ -345,3 +345,70 @@ sops:
       9. Watch for heat cramps, exhaustion, or stroke symptoms
       10. Call emergency services (911) if symptoms develop
     source: "CDC Extreme Heat and Outdoor Exercise"
+
+  - id: "SOP-GEN-003"
+    name: "Persistent Rain Advisory for Outdoor Exercise"
+    category: "General Outdoor Exercise"
+    applies_to:
+      - "cycling"
+      - "running"
+      - "walking"
+      - "jogging"
+      - "hiking"
+    severity: "moderate"
+    priority: 98
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "weather_condition"
+          operator: "=="
+          value: "rain"
+        - field: "advisory_active"
+          operator: "=="
+          value: true
+        - field: "advisory_category"
+          operator: "=="
+          value: "rain"
+        - field: "advisory_type"
+          operator: "=="
+          value: "persistent_rain_advisory"
+    guidance: |
+      Persistent rain advisory detected. MediBuddy SOP-GEN-003 recommends:
+      1. Reduce intensity and keep outdoor exercise brief
+      2. Choose routes with better drainage and avoid flooded areas
+      3. Wear water-resistant gear and maintain good visibility
+      4. Increase hydration awareness even while exercising in rain
+      5. Stop if footing becomes unsafe or lightning is nearby
+    source: "National Weather Service Rain Safety"
+
+  - id: "SOP-GEN-004"
+    name: "Severe Low-Pressure or Cyclonic Weather System"
+    category: "General Outdoor Exercise"
+    applies_to:
+      - "cycling"
+      - "running"
+      - "walking"
+      - "jogging"
+      - "hiking"
+    severity: "severe"
+    priority: 130
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "advisory_active"
+          operator: "=="
+          value: true
+        - field: "advisory_type"
+          operator: "=="
+          value: "low_pressure_or_cyclonic_system"
+        - field: "rainfall_intensity"
+          operator: "=="
+          value: "heavy_to_very_heavy"
+    guidance: |
+      Severe low-pressure or cyclonic weather system is active with heavy to very heavy rainfall. MediBuddy SOP-GEN-004 recommends:
+      1. IMMEDIATELY avoid all outdoor exercise
+      2. Seek shelter in a safe indoor location without delay
+      3. Postpone cycling, running, walking, jogging, and hiking until the advisory is lifted
+      4. Avoid waterlogged roads, drainage channels, and exposed open spaces
+      5. Monitor official weather updates and wait for clear conditions before resuming outside activity
+    source: "Authoritative Severe Weather Advisory"
