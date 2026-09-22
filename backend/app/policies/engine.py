@@ -11,15 +11,40 @@ from backend.app.policies.models import (
 
 logger = logging.getLogger(__name__)
 
+FIELD_ALIASES: dict[str, str] = {
+    "temperature": "temperature_2m",
+    "wind_speed": "wind_speed_10m",
+    "wind_gusts": "wind_gusts_10m",
+}
+
 
 class DeterministicSOPEngine:
     """
     Deterministic SOP (Standard Operating Procedure) matching engine.
-    
+
     Matches weather facts and activity context against a set of SOPs
     to determine which safety procedures apply. Decision logic is explicit
     and deterministic - no LLM inference involved in safety decisions.
+
+    COMPOSITE_SCORE semantics: the score is the sum of penalties whose
+    conditions are provably met by the actual weather facts. A missing
+    fact can never contribute a penalty and can never be invented.
     """
+
+    @staticmethod
+    def _resolve_fact(weather_facts: dict[str, Any], field: str) -> Any:
+        """
+        Look up a fact by field name, tolerating generic/Open-Meteo naming
+        variants (e.g. "temperature" <-> "temperature_2m").
+        """
+        if field in weather_facts:
+            return weather_facts[field]
+        for alias, canonical in FIELD_ALIASES.items():
+            if field == alias and canonical in weather_facts:
+                return weather_facts[canonical]
+            if field == canonical and alias in weather_facts:
+                return weather_facts[alias]
+        return None
 
     def __init__(self, sops: list[SOPDefinition]):
         """
@@ -58,7 +83,8 @@ class DeterministicSOPEngine:
                 continue
 
             # Check conditions
-            if self._conditions_match(sop.conditions, weather_facts, activity):
+            matched, composite_score = self._conditions_match(sop.conditions, weather_facts, activity)
+            if matched:
                 # Build reasons for match
                 reasons = self._get_match_reasons(sop.conditions, weather_facts, activity)
 
@@ -70,6 +96,7 @@ class DeterministicSOPEngine:
                     priority=sop.priority,
                     guidance=sop.guidance,
                     reasons=reasons,
+                    composite_score=composite_score,
                     is_exact_activity_match=bool(activity and activity.lower() in [a.lower() for a in sop.applies_to]),
                 )
                 matches.append(match)
@@ -125,14 +152,17 @@ class DeterministicSOPEngine:
 
     def _conditions_match(
         self, conditions_block: Any, weather_facts: dict[str, Any], activity: Optional[str]
-    ) -> bool:
+    ) -> tuple[bool, Optional[float]]:
         """
         Evaluate if conditions block matches weather facts.
-        
+
         Supports three operators:
         - AND: All rules must match
         - OR: At least one rule must match
-        - COMPOSITE_SCORE: Composite scoring with penalties
+        - COMPOSITE_SCORE: Composite risk scoring with penalties
+
+        Returns (matched, composite_score) where composite_score is only
+        populated for COMPOSITE_SCORE blocks.
         """
         operator = conditions_block.operator
 
@@ -140,22 +170,22 @@ class DeterministicSOPEngine:
             # All rules must match
             for rule in conditions_block.rules or []:
                 if not self._rule_matches(rule, weather_facts, activity):
-                    return False
-            return True
+                    return False, None
+            return True, None
 
         elif operator == "OR":
             # At least one rule must match
             if not conditions_block.rules:
-                return False
+                return False, None
             for rule in conditions_block.rules:
                 if self._rule_matches(rule, weather_facts, activity):
-                    return True
-            return False
+                    return True, None
+            return False, None
 
         elif operator == "COMPOSITE_SCORE":
-            # Composite scoring with penalties
+            # Composite risk scoring: match when accumulated penalties cross the cutoff
             if not conditions_block.scoring:
-                return False
+                return False, None
             score = self._calculate_composite_score(
                 conditions_block.scoring, weather_facts
             )
@@ -164,15 +194,16 @@ class DeterministicSOPEngine:
             cutoff = threshold.cutoff
 
             if operator_type == ">":
-                return score > cutoff
+                return score > cutoff, score
             elif operator_type == ">=":
-                return score >= cutoff
+                return score >= cutoff, score
             elif operator_type == "<":
-                return score < cutoff
+                return score < cutoff, score
             elif operator_type == "<=":
-                return score <= cutoff
+                return score <= cutoff, score
+            return False, score
 
-        return False
+        return False, None
 
     def _rule_matches(
         self, rule: ComparisonRule, weather_facts: dict[str, Any], activity: Optional[str]
@@ -195,12 +226,11 @@ class DeterministicSOPEngine:
                 return actual.lower() in [v.lower() for v in value]
             return False
 
-        # Get actual value from weather facts
-        if field not in weather_facts:
+        # Get actual value from weather facts (missing facts are never invented)
+        actual = self._resolve_fact(weather_facts, field)
+        if actual is None:
             logger.warning(f"Weather fact field '{field}' not found in weather data")
             return False
-
-        actual = weather_facts[field]
 
         # Compare based on operator
         if operator == ">":
@@ -232,27 +262,33 @@ class DeterministicSOPEngine:
 
     def _calculate_composite_score(self, scoring_config: Any, weather_facts: dict[str, Any]) -> float:
         """
-        Calculate composite score with penalties.
-        
-        Starts with base_score and subtracts penalties where conditions match.
+        Calculate a composite risk score using the configured scoring model.
+
+        The semantics are generic and consistent across all COMPOSITE_SCORE rules:
+        - add all matched penalties to produce a risk accumulation total
+        - when the YAML threshold is expressed as a remaining-safety comparison
+          (for example '<=' or '<'), compare against base_score - penalty_total
+        - when the threshold is expressed as a risk-accumulation comparison
+          (for example '>' or '>='), compare against penalty_total
+
+        This ensures the base score is never treated as a qualifying match by itself,
+        while legitimate composite SOPs still evaluate correctly.
         """
-        score = scoring_config.base_score
+        base_score = float(getattr(scoring_config, "base_score", 0.0) or 0.0)
+        penalty_total = 0.0
 
         for penalty in scoring_config.penalties or []:
-            field = penalty.field
-            condition = penalty.condition
-            penalty_amount = penalty.penalty
-
-            if field not in weather_facts:
+            actual = self._resolve_fact(weather_facts, penalty.field)
+            if actual is None:
                 continue
 
-            actual = weather_facts[field]
+            if self._penalty_condition_matches(penalty.condition, actual):
+                penalty_total += float(penalty.penalty)
 
-            # Check penalty condition
-            if self._penalty_condition_matches(condition, actual):
-                score -= penalty_amount
-
-        return max(0.0, score)  # Score cannot go below 0
+        threshold = scoring_config.decision_threshold
+        if threshold.operator in {"<", "<="}:
+            return max(base_score - penalty_total, 0.0)
+        return penalty_total
 
     def _penalty_condition_matches(self, condition: Any, actual: Any) -> bool:
         """
@@ -305,7 +341,7 @@ class DeterministicSOPEngine:
                 actual = activity or ""
                 matched = self._rule_matches(rule, weather_facts, activity)
             else:
-                actual = weather_facts.get(field)
+                actual = self._resolve_fact(weather_facts, field)
                 if actual is None:
                     continue
                 matched = self._rule_matches(rule, weather_facts, activity)

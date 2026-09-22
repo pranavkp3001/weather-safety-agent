@@ -348,6 +348,50 @@ class TestDeterministicSOPEngine:
         # Should match composite heat policy
         assert "SOP-GEN-002" in sop_ids or "SOP-RUN-001" in sop_ids
 
+    def test_sop_gen_002_not_triggered_for_mild_clear_conditions(self, engine):
+        """Regression: mild clear-weather cycling should not trigger the hot-weather SOP."""
+        mild_weather = {
+            "temperature_2m": 31.2,
+            "uv_index": 0.2,
+            "wind_speed_10m": 9,
+            "wind_gusts_10m": 27,
+            "precipitation": 0.0,
+            "precipitation_probability": 0.0,
+            "weather_code": 0,
+            "weather_condition": "clear",
+        }
+
+        matches = engine.match_all(
+            weather_facts=mild_weather,
+            activity="cycling",
+            category="outdoor_exercise",
+        )
+
+        assert "SOP-GEN-002" not in [m.sop_id for m in matches]
+
+    def test_sop_gen_002_triggered_for_genuine_heat_risk(self, engine):
+        """Regression: a genuinely qualifying hot-weather combination should trigger SOP-GEN-002."""
+        hot_weather = {
+            "temperature_2m": 38.0,
+            "humidity": 85,
+            "wind_speed_10m": 7,
+            "wind_gusts_10m": 20,
+            "precipitation": 0.0,
+            "precipitation_probability": 0.0,
+            "uv_index": 10.0,
+            "weather_code": 0,
+            "weather_condition": "clear",
+            "solar_radiation": 900,
+        }
+
+        matches = engine.match_all(
+            weather_facts=hot_weather,
+            activity="cycling",
+            category="outdoor_exercise",
+        )
+
+        assert "SOP-GEN-002" in [m.sop_id for m in matches]
+
     def test_composite_score_calculation(self, engine, sample_weather_icy):
         """Test composite score penalty calculation."""
         matches = engine.match_all(

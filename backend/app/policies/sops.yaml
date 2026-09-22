@@ -314,31 +314,26 @@ sops:
       scoring:
         base_score: 100.0
         penalties:
-          - field: "temperature"
+          - field: "temperature_2m"
             condition:
               operator: ">="
               threshold: 32
             penalty: 25.0
-          - field: "humidity"
-            condition:
-              operator: ">"
-              threshold: 70
-            penalty: 20.0
-          - field: "solar_radiation"
-            condition:
-              operator: ">"
-              threshold: 800
-            penalty: 20.0
-          - field: "temperature"
+          - field: "temperature_2m"
             condition:
               operator: ">="
               threshold: 38
             penalty: 35.0
+          - field: "precipitation_probability"
+            condition:
+              operator: ">"
+              threshold: 70
+            penalty: 20.0
         decision_threshold:
-          operator: ">="
-          cutoff: 60.0
+          operator: "<="
+          cutoff: 55.0
     guidance: |
-      Multiple heat risk factors detected. MediBuddy SOP-GEN-002 recommends:
+      Multiple heat risk factors detected for cycling, running, and other outdoor exercise. MediBuddy SOP-GEN-002 recommends:
       1. Reduce exercise intensity significantly (consider 50% normal effort)
       2. Shorten exercise duration (limit to 20-30 minutes max)
       3. Increase hydration: 300-400ml water every 15 minutes

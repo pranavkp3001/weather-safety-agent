@@ -67,27 +67,31 @@ class ResponseValidator:
                     fallback_response=fallback
                 )
 
-        # 1. Verify SOP ID Citation
-        if selected_sop.sop_id not in response_text:
-            logger.warning(f"Validation failed: SOP ID {selected_sop.sop_id} not cited in response.")
+        # User-facing responses are intentionally natural-language and do not need to
+        # echo the internal SOP ID or severity label. Validation checks the structured
+        # decision object instead of literal text in the final response.
+        response_lower = response_text.lower()
+        guidance_lower = selected_sop.guidance.lower()
+
+        # 1. Reject explicitly unsupported emergency advice that is not in the selected SOP.
+        if "911" in response_lower and "911" not in guidance_lower:
+            logger.warning("Validation failed: emergency number used without support from the selected SOP.")
             fallback = self.generate_deterministic_fallback(facts, selected_sop)
             return ValidationResult(
                 is_valid=False,
-                reason=f"Selected SOP ID '{selected_sop.sop_id}' was missing from the response.",
+                reason="Emergency guidance was not grounded in the selected SOP.",
                 fallback_response=fallback
             )
-
-        # 2. Verify Severity Citation
-        if selected_sop.severity.lower() not in response_text.lower():
-            logger.warning(f"Validation failed: Severity '{selected_sop.severity}' not mentioned.")
+        if "call emergency services" in response_lower and "call emergency services" not in guidance_lower and "emergency services" not in guidance_lower:
+            logger.warning("Validation failed: emergency-services advice was not grounded in the selected SOP.")
             fallback = self.generate_deterministic_fallback(facts, selected_sop)
             return ValidationResult(
                 is_valid=False,
-                reason=f"Severity level '{selected_sop.severity}' was not correctly identified.",
+                reason="Unsupported emergency advice was included in the response.",
                 fallback_response=fallback
             )
 
-        # 3. Verify Numeric Values in Response
+        # 2. Verify Numeric Values in Response
         if facts:
             trusted_numbers = set()
             facts_dict = facts.to_facts_dict()
@@ -105,17 +109,13 @@ class ResponseValidator:
                         if isinstance(item, (int, float)):
                             trusted_numbers.add(round(float(item), 1))
 
-            # Extract numbers mentioned in text (excluding SOP ID digits like 001)
-            # Replace SOP IDs first
             sanitized_text = re.sub(r'SOP-[A-Z]+-\d+', '', response_text)
             extracted_numbers = re.findall(r'\b\d+(?:\.\d+)?\b', sanitized_text)
 
             for num_str in extracted_numbers:
                 num_val = round(float(num_str), 1)
-                # Ignore common harmless numbers like 1, 2 (ranks) or SPF 50
                 if num_val in [1.0, 2.0, 3.0, 50.0]:
                     continue
-                # Check against trusted numbers with a 0.5 margin for slight rounding
                 if not any(abs(num_val - t) <= 0.6 for t in trusted_numbers):
                     logger.warning(f"Validation failed: Number {num_val} in response not found in trusted facts: {trusted_numbers}")
                     fallback = self.generate_deterministic_fallback(facts, selected_sop)
@@ -124,5 +124,15 @@ class ResponseValidator:
                         reason=f"Untrusted or hallucinated numeric value '{num_val}' found in response.",
                         fallback_response=fallback
                     )
+
+        # 3. Ensure the selected SOP and structured trace remain the authority.
+        if selected_sop.sop_id and not selected_sop.sop_id.startswith("SOP-"):
+            logger.warning("Validation failed: selected SOP ID is malformed.")
+            fallback = self.generate_deterministic_fallback(facts, selected_sop)
+            return ValidationResult(
+                is_valid=False,
+                reason="Selected SOP ID was malformed.",
+                fallback_response=fallback
+            )
 
         return ValidationResult(is_valid=True)
