@@ -1,0 +1,352 @@
+version: "1.0"
+sops:
+  # CYCLING CATEGORY (3 SOPs)
+  - id: "SOP-CYC-001"
+    name: "Cycling in High Heat"
+    category: "Cycling"
+    applies_to:
+      - "cycling"
+      - "biking"
+    severity: "high"
+    priority: 100
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 35
+          unit: "celsius"
+        - field: "activity"
+          operator: "=="
+          value: "cycling"
+    guidance: |
+      High temperature detected for cycling activity. MediBuddy SOP-CYC-001 recommends:
+      1. Cycle early morning or late evening to avoid peak heat
+      2. Wear light-colored, breathable clothing
+      3. Apply SPF 30+ sunscreen
+      4. Drink water every 15-20 minutes
+      5. Take breaks in shade every 30 minutes
+      6. Consider postponing if temperature exceeds 40°C
+    source: "WHO Heat Illness Prevention Guidelines"
+
+  - id: "SOP-CYC-002"
+    name: "Cycling in Poor Air Quality"
+    category: "Cycling"
+    applies_to:
+      - "cycling"
+      - "biking"
+    severity: "high"
+    priority: 95
+    conditions:
+      operator: "COMPOSITE_SCORE"
+      scoring:
+        base_score: 100.0
+        penalties:
+          - field: "air_quality_index"
+            condition:
+              operator: ">"
+              threshold: 150
+            penalty: 40.0
+          - field: "air_quality_index"
+            condition:
+              operator: ">"
+              threshold: 200
+            penalty: 60.0
+        decision_threshold:
+          operator: ">"
+          cutoff: 40.0
+    guidance: |
+      Poor air quality detected. MediBuddy SOP-CYC-002 recommends:
+      1. Consider postponing outdoor cycling
+      2. If cycling is necessary, wear N95 mask
+      3. Reduce intensity and duration of activity
+      4. Consult physician if you have respiratory conditions
+      5. Monitor for symptoms: coughing, wheezing, shortness of breath
+    source: "EPA Air Quality Guidelines"
+
+  - id: "SOP-CYC-003"
+    name: "Cycling in Cold with High Wind"
+    category: "Cycling"
+    applies_to:
+      - "cycling"
+      - "biking"
+    severity: "moderate"
+    priority: 85
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: "<"
+          value: 5
+          unit: "celsius"
+        - field: "wind_speed"
+          operator: ">="
+          value: 25
+          unit: "kmh"
+        - field: "activity"
+          operator: "=="
+          value: "cycling"
+    guidance: |
+      Cold weather with high winds detected for cycling activity. MediBuddy SOP-CYC-003 recommends:
+      1. Wear windproof outer layers to protect against wind chill
+      2. Protect face and extremities with balaclava or face mask
+      3. Wear waterproof gloves rated for cold
+      4. Use bike lights and reflectors for visibility
+      5. Reduce riding speed due to wind and reduced control
+      6. Consider postponing if wind gusts exceed 40 kmh
+    source: "Winter Cycling Safety Federation"
+
+  # RUNNING CATEGORY (3 SOPs)
+  - id: "SOP-RUN-001"
+    name: "Running in Extreme Heat"
+    category: "Running"
+    applies_to:
+      - "running"
+      - "jogging"
+    severity: "severe"
+    priority: 110
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 38
+          unit: "celsius"
+        - field: "activity"
+          operator: "=="
+          value: "running"
+    guidance: |
+      Extreme heat warning. MediBuddy SOP-RUN-001 recommends:
+      1. STRONGLY CONSIDER POSTPONING outdoor running
+      2. If running, do so only during early morning (before 6 AM) or late evening (after 8 PM)
+      3. Run slower pace and shorter distance
+      4. Hydrate aggressively: 200-300ml water every 15 minutes
+      5. Watch for heat exhaustion signs: dizziness, nausea, weakness
+      6. Run with a partner and inform someone of your route
+      7. Seek immediate medical attention if symptoms develop
+    source: "American Heart Association Heat Safety"
+
+  - id: "SOP-RUN-002"
+    name: "Running with High Humidity"
+    category: "Running"
+    applies_to:
+      - "running"
+      - "jogging"
+    severity: "moderate"
+    priority: 75
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 25
+          unit: "celsius"
+        - field: "humidity"
+          operator: ">"
+          value: 80
+          unit: "percent"
+        - field: "activity"
+          operator: "=="
+          value: "running"
+    guidance: |
+      High humidity detected with warm temperature for running. MediBuddy SOP-RUN-002 recommends:
+      1. Reduce running intensity and duration (body cannot cool effectively)
+      2. Drink more water than normal: 250-300ml every 15 minutes
+      3. Wear moisture-wicking clothing
+      4. Run in shaded areas when possible
+      5. Monitor body temperature and take frequent breaks
+      6. Do not push for speed records during high humidity
+      7. Start slowly and listen to your body
+    source: "Running USA Heat and Humidity Guidelines"
+
+  - id: "SOP-RUN-003"
+    name: "Running on Icy Conditions"
+    category: "Running"
+    applies_to:
+      - "running"
+      - "jogging"
+    severity: "high"
+    priority: 90
+    conditions:
+      operator: "COMPOSITE_SCORE"
+      scoring:
+        base_score: 100.0
+        penalties:
+          - field: "temperature"
+            condition:
+              operator: "<"
+              threshold: 0
+            penalty: 30.0
+          - field: "precipitation"
+            condition:
+              operator: "=="
+              value: "ice"
+            penalty: 50.0
+          - field: "temperature"
+            condition:
+              operator: "<"
+              threshold: -5
+            penalty: 20.0
+        decision_threshold:
+          operator: ">"
+          cutoff: 30.0
+    guidance: |
+      Icy conditions detected for running activity. MediBuddy SOP-RUN-003 recommends:
+      1. Wear shoes with good traction and ice cleats if available
+      2. Reduce speed significantly to prevent slipping and falling
+      3. Run on cleared paths or sidewalks when possible
+      4. Shorten running distance and duration
+      5. Run during daylight hours for better visibility
+      6. Warm up thoroughly before running
+      7. Consider running on a treadmill or indoor track instead
+      8. Never run on black ice or suspicious patches
+    source: "Winter Running Safety Association"
+
+  # WALKING CATEGORY (2 SOPs)
+  - id: "SOP-WALK-001"
+    name: "Walking in Moderate Heat"
+    category: "Walking"
+    applies_to:
+      - "walking"
+      - "hiking"
+    severity: "moderate"
+    priority: 70
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "temperature"
+          operator: ">="
+          value: 28
+          unit: "celsius"
+        - field: "temperature"
+          operator: "<"
+          value: 35
+          unit: "celsius"
+        - field: "activity"
+          operator: "=="
+          value: "walking"
+    guidance: |
+      Moderate heat detected for walking activity. MediBuddy SOP-WALK-001 recommends:
+      1. Walk during cooler parts of day (early morning or late evening)
+      2. Choose shaded routes when possible
+      3. Drink water regularly (150-200ml every 15-20 minutes)
+      4. Wear sun protection: hat, sunglasses, light clothing
+      5. Take 10-minute breaks in shade every 30-45 minutes
+      6. Watch for signs of heat fatigue: dizziness, nausea
+    source: "WHO Physical Activity Guidelines"
+
+  - id: "SOP-WALK-002"
+    name: "Walking During Air Quality Emergency"
+    category: "Walking"
+    applies_to:
+      - "walking"
+      - "hiking"
+    severity: "high"
+    priority: 100
+    conditions:
+      operator: "AND"
+      rules:
+        - field: "air_quality_index"
+          operator: ">"
+          value: 200
+          unit: "aqi"
+        - field: "activity"
+          operator: "=="
+          value: "walking"
+    guidance: |
+      Severe air quality emergency detected. MediBuddy SOP-WALK-002 recommends:
+      1. STRONGLY AVOID outdoor walking
+      2. Postpone all outdoor activities until air quality improves
+      3. Stay indoors with windows and doors closed
+      4. Use air purifiers indoors if available
+      5. If you must go outside, wear N95 or P100 respirator mask
+      6. Limit time outdoors to absolute minimum
+      7. Monitor air quality index hourly for improvement
+      8. Vulnerable populations (children, elderly, asthmatic) should remain indoors
+    source: "EPA Severe Air Quality Health Advisory"
+
+  # OUTDOOR EXERCISE GENERAL (2 SOPs)
+  - id: "SOP-GEN-001"
+    name: "Outdoor Exercise in Thunderstorm"
+    category: "General Outdoor Exercise"
+    applies_to:
+      - "cycling"
+      - "running"
+      - "walking"
+      - "jogging"
+      - "hiking"
+    severity: "severe"
+    priority: 120
+    conditions:
+      operator: "OR"
+      rules:
+        - field: "weather_condition"
+          operator: "=="
+          value: "thunderstorm"
+        - field: "weather_condition"
+          operator: "=="
+          value: "severe_weather"
+    guidance: |
+      Active thunderstorm or severe weather detected. MediBuddy SOP-GEN-001 recommends:
+      1. IMMEDIATELY STOP outdoor exercise and seek shelter
+      2. Do not continue exercising outdoors during active lightning
+      3. Move indoors to a safe building immediately
+      4. Stay indoors until 30 minutes after last thunder
+      5. Do not use mobile phones or electronics connected to power
+      6. Avoid windows and open areas
+      7. Wait for official all-clear from weather service
+      8. Do not resume outdoor activities until thunderstorm passes
+    source: "National Weather Service Lightning Safety"
+
+  - id: "SOP-GEN-002"
+    name: "Outdoor Exercise with Multiple Heat Risk Factors"
+    category: "General Outdoor Exercise"
+    applies_to:
+      - "cycling"
+      - "running"
+      - "walking"
+      - "jogging"
+      - "hiking"
+    severity: "high"
+    priority: 105
+    conditions:
+      operator: "COMPOSITE_SCORE"
+      scoring:
+        base_score: 100.0
+        penalties:
+          - field: "temperature"
+            condition:
+              operator: ">="
+              threshold: 32
+            penalty: 25.0
+          - field: "humidity"
+            condition:
+              operator: ">"
+              threshold: 70
+            penalty: 20.0
+          - field: "solar_radiation"
+            condition:
+              operator: ">"
+              threshold: 800
+            penalty: 20.0
+          - field: "temperature"
+            condition:
+              operator: ">="
+              threshold: 38
+            penalty: 35.0
+        decision_threshold:
+          operator: ">="
+          cutoff: 60.0
+    guidance: |
+      Multiple heat risk factors detected. MediBuddy SOP-GEN-002 recommends:
+      1. Reduce exercise intensity significantly (consider 50% normal effort)
+      2. Shorten exercise duration (limit to 20-30 minutes max)
+      3. Increase hydration: 300-400ml water every 15 minutes
+      4. Exercise only during coolest hours (5-7 AM or 7-9 PM)
+      5. Wear minimal, light-colored, loose clothing
+      6. Take shade breaks every 15 minutes
+      7. Have a companion with you at all times
+      8. Consider postponing to a cooler day
+      9. Watch for heat cramps, exhaustion, or stroke symptoms
+      10. Call emergency services (911) if symptoms develop
+    source: "CDC Extreme Heat and Outdoor Exercise"

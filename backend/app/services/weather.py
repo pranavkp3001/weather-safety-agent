@@ -1,11 +1,73 @@
 import httpx
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
 from backend.app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# WMO Weather Code to Normalized Condition Mapping
+# Reference: https://open-meteo.com/en/docs
+# This is a DETERMINISTIC, GENERIC mapping - not tied to any historical event or region
+def normalize_weather_condition(weather_code: int) -> Optional[str]:
+    """
+    Convert WMO weather code (0-99) to normalized weather condition.
+    
+    Returns one of: "clear", "cloudy", "rain", "heavy_rain", "snow", "thunderstorm", "severe_weather"
+    or None if unmapped.
+    
+    This is a deterministic, generic mapping independent of location or historical events.
+    It does NOT claim to detect cyclone/low-pressure systems without explicit advisory data.
+    """
+    code_to_condition = {
+        # Clear/Partly cloudy
+        0: "clear",
+        1: "clear",
+        2: "cloudy",
+        3: "cloudy",
+        
+        # Fog
+        45: "cloudy",
+        48: "cloudy",
+        
+        # Drizzle
+        51: "rain",
+        53: "rain",
+        55: "rain",
+        
+        # Rain (light/moderate)
+        61: "rain",
+        63: "rain",
+        
+        # Heavy rain
+        65: "heavy_rain",
+        
+        # Snow/sleet
+        71: "snow",
+        73: "snow",
+        75: "snow",
+        77: "snow",
+        
+        # Rain showers
+        80: "rain",
+        81: "rain",
+        
+        # Violent rain showers (severe)
+        82: "severe_weather",
+        
+        # Snow showers
+        85: "snow",
+        86: "snow",
+        
+        # Thunderstorm (WMO 95-99 are all thunderstorm variants)
+        95: "thunderstorm",
+        96: "thunderstorm",
+        99: "thunderstorm",
+    }
+    
+    return code_to_condition.get(weather_code)
 
 
 class AdvisorySignal(BaseModel):
@@ -35,6 +97,7 @@ class WeatherFacts(BaseModel):
     precipitation_probability: float = 0.0
     uv_index: float = 0.0
     weather_code: int = 0
+    weather_condition: Optional[str] = None  # NEW: Normalized WMO condition ("clear", "rain", "thunderstorm", etc.)
     time_scope: str = "current"
 
     def to_facts_dict(self) -> dict[str, Any]:
@@ -46,15 +109,17 @@ class WeatherFacts(BaseModel):
             "precipitation_probability": round(float(self.precipitation_probability), 1),
             "uv_index": round(float(self.uv_index), 1),
             "weather_code": int(self.weather_code),
+            "weather_condition": self.weather_condition,  # NEW: Include normalized condition
         }
 
     def summary_text(self) -> str:
+        condition_str = f", Condition: {self.weather_condition}" if self.weather_condition else ""
         return (
             f"Temperature: {self.temperature_2m}°C, "
             f"Wind: {self.wind_speed_10m} km/h (gusts: {self.wind_gusts_10m} km/h), "
             f"Precipitation: {self.precipitation} mm ({self.precipitation_probability}%), "
             f"UV Index: {self.uv_index}, "
-            f"WMO Code: {self.weather_code}"
+            f"WMO Code: {self.weather_code}{condition_str}"
         )
 
 
@@ -171,6 +236,7 @@ class WeatherService:
 
         if target_index is not None and hourly:
             # Use hourly snapshot for requested time
+            weather_code = int(hourly.get("weather_code", [0])[target_index] or 0)
             return WeatherFacts(
                 location=location_name,
                 latitude=latitude,
@@ -182,11 +248,13 @@ class WeatherService:
                 precipitation=float(hourly["precipitation"][target_index]),
                 precipitation_probability=float(hourly.get("precipitation_probability", [0.0])[target_index] or 0.0),
                 uv_index=float(hourly.get("uv_index", [0.0])[target_index] or 0.0),
-                weather_code=int(hourly.get("weather_code", [0])[target_index] or 0),
+                weather_code=weather_code,
+                weather_condition=normalize_weather_condition(weather_code),  # NEW: Normalize condition
                 time_scope=time_ref
             )
 
         # Default to current
+        weather_code = int(current.get("weather_code", 0) or 0)
         return WeatherFacts(
             location=location_name,
             latitude=latitude,
@@ -198,6 +266,7 @@ class WeatherService:
             precipitation=float(current.get("precipitation", 0.0) or 0.0),
             precipitation_probability=float(current.get("precipitation_probability", 0.0) or 0.0),
             uv_index=float(current.get("uv_index", 0.0) or 0.0),
-            weather_code=int(current.get("weather_code", 0) or 0),
+            weather_code=weather_code,
+            weather_condition=normalize_weather_condition(weather_code),  # NEW: Normalize condition
             time_scope="current"
         )

@@ -37,7 +37,7 @@ class SessionManager:
     def __init__(self, ttl_seconds: int = 3600):
         self.ttl_seconds = ttl_seconds
         self._sessions: dict[str, SessionContext] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def get_or_create(self, session_id: str) -> SessionContext:
         with self._lock:
