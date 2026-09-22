@@ -1,10 +1,30 @@
 import pytest
+from unittest.mock import patch, AsyncMock
 from backend.app.graph.workflow import weather_bot_graph
 from backend.app.main import ChatRequest, chat
 from backend.app.llm.client import MockLLMClient
 from backend.app.policies.models import SOPMatch
 from backend.app.services.session import session_manager
-from backend.app.services.weather import WeatherFacts
+from backend.app.services.weather import WeatherFacts, WeatherService
+
+
+def _walking_moderate_heat_weather() -> WeatherFacts:
+    """Weather facts that satisfy SOP-WALK-001: temperature 28-35°C for walking."""
+    return WeatherFacts(
+        location="Delhi",
+        latitude=28.61,
+        longitude=77.21,
+        timestamp="2026-09-23T12:00:00",
+        temperature_2m=30.0,
+        wind_speed_10m=8.0,
+        wind_gusts_10m=12.0,
+        precipitation=0.0,
+        precipitation_probability=5.0,
+        uv_index=7.0,
+        weather_code=1,
+        weather_condition="clear",
+        time_scope="today",
+    )
 
 
 @pytest.mark.asyncio
@@ -12,24 +32,43 @@ async def test_graph_flow_success_path():
     sid = "test-graph-success"
     session_manager.clear(sid)
 
-    initial_state = {
-        "session_id": sid,
-        "user_query": "Is cycling safe in Bhopal today?",
-        "intent": None,
-        "location": None,
-        "weather_facts": None,
-        "advisory": None,
-        "matched_sops": [],
-        "selected_sop": None,
-        "decision_trace": [],
-        "error_type": None,
-        "error_message": None,
-        "final_response": None,
-        "is_validated": False,
-        "fallback_used": False,
-    }
+    cycling_weather = WeatherFacts(
+        location="Bhopal",
+        latitude=23.25,
+        longitude=77.41,
+        timestamp="2026-09-23T12:00:00",
+        temperature_2m=30.0,
+        wind_speed_10m=8.0,
+        wind_gusts_10m=12.0,
+        precipitation=0.0,
+        precipitation_probability=5.0,
+        uv_index=7.0,
+        weather_code=1,
+        weather_condition="clear",
+        time_scope="today",
+    )
 
-    result = await weather_bot_graph.ainvoke(initial_state)
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = cycling_weather
+
+        initial_state = {
+            "session_id": sid,
+            "user_query": "Is cycling safe in Bhopal today?",
+            "intent": None,
+            "location": None,
+            "weather_facts": None,
+            "advisory": None,
+            "matched_sops": [],
+            "selected_sop": None,
+            "decision_trace": [],
+            "error_type": None,
+            "error_message": None,
+            "final_response": None,
+            "is_validated": False,
+            "fallback_used": False,
+        }
+
+        result = await weather_bot_graph.ainvoke(initial_state)
 
     assert result["location"] is not None
     assert result["location"].name.lower() == "bhopal"
@@ -107,7 +146,10 @@ async def test_chat_structured_sop_output_and_clean_user_response():
     sid = "test-chat-structured-sop"
     session_manager.clear(sid)
 
-    response = await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = _walking_moderate_heat_weather()
+
+        response = await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
 
     assert response.sop_id == "SOP-WALK-001"
     assert response.severity == "moderate"
@@ -122,8 +164,27 @@ async def test_chat_evening_follow_up_uses_time_scope_without_internal_metadata(
     sid = "test-chat-evening-followup"
     session_manager.clear(sid)
 
-    await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
-    response = await chat(ChatRequest(message="What about this evening?", session_id=sid))
+    evening_weather = WeatherFacts(
+        location="Delhi",
+        latitude=28.61,
+        longitude=77.21,
+        timestamp="2026-09-23T18:00:00",
+        temperature_2m=29.0,
+        wind_speed_10m=6.0,
+        wind_gusts_10m=10.0,
+        precipitation=0.0,
+        precipitation_probability=5.0,
+        uv_index=2.0,
+        weather_code=1,
+        weather_condition="clear",
+        time_scope="this evening",
+    )
+
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = evening_weather
+
+        await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
+        response = await chat(ChatRequest(message="What about this evening?", session_id=sid))
 
     assert "evening" in response.response.lower()
     assert "SOP-WALK-001" not in response.response
@@ -141,7 +202,10 @@ async def test_chat_response_excludes_internal_policy_metadata_and_language():
     sid = "test-chat-no-policy-metadata"
     session_manager.clear(sid)
 
-    response = await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = _walking_moderate_heat_weather()
+
+        response = await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
 
     lower = response.response.lower()
     assert response.sop_id == "SOP-WALK-001"
@@ -161,8 +225,27 @@ async def test_chat_night_follow_up_uses_requested_time_scope_without_daytime_ph
     sid = "test-chat-night-followup"
     session_manager.clear(sid)
 
-    await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
-    response = await chat(ChatRequest(message="What about this night?", session_id=sid))
+    night_weather = WeatherFacts(
+        location="Delhi",
+        latitude=28.61,
+        longitude=77.21,
+        timestamp="2026-09-23T22:00:00",
+        temperature_2m=29.0,
+        wind_speed_10m=5.0,
+        wind_gusts_10m=8.0,
+        precipitation=0.0,
+        precipitation_probability=0.0,
+        uv_index=0.0,
+        weather_code=0,
+        weather_condition="clear",
+        time_scope="this night",
+    )
+
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = night_weather
+
+        await chat(ChatRequest(message="Can I go walking in Delhi today?", session_id=sid))
+        response = await chat(ChatRequest(message="What about this night?", session_id=sid))
 
     lower = response.response.lower()
     assert "night" in lower
@@ -196,44 +279,79 @@ async def test_graph_flow_session_follow_up():
     sid = "test-graph-followup"
     session_manager.clear(sid)
 
-    # Turn 1: Establish Bhopal + Cycling
-    state_turn1 = {
-        "session_id": sid,
-        "user_query": "Is cycling safe in Bhopal today?",
-        "intent": None,
-        "location": None,
-        "weather_facts": None,
-        "advisory": None,
-        "matched_sops": [],
-        "selected_sop": None,
-        "decision_trace": [],
-        "error_type": None,
-        "error_message": None,
-        "final_response": None,
-        "is_validated": False,
-        "fallback_used": False,
-    }
-    res1 = await weather_bot_graph.ainvoke(state_turn1)
-    assert res1["location"].name.lower() == "bhopal"
+    turn1_weather = WeatherFacts(
+        location="Bhopal",
+        latitude=23.25,
+        longitude=77.41,
+        timestamp="2026-09-23T12:00:00",
+        temperature_2m=30.0,
+        wind_speed_10m=8.0,
+        wind_gusts_10m=12.0,
+        precipitation=0.0,
+        precipitation_probability=5.0,
+        uv_index=7.0,
+        weather_code=1,
+        weather_condition="clear",
+        time_scope="today",
+    )
 
-    # Turn 2: Follow-up "What about this evening?" (no location or activity specified)
-    state_turn2 = {
-        "session_id": sid,
-        "user_query": "What about this evening?",
-        "intent": None,
-        "location": None,
-        "weather_facts": None,
-        "advisory": None,
-        "matched_sops": [],
-        "selected_sop": None,
-        "decision_trace": [],
-        "error_type": None,
-        "error_message": None,
-        "final_response": None,
-        "is_validated": False,
-        "fallback_used": False,
-    }
-    res2 = await weather_bot_graph.ainvoke(state_turn2)
+    turn2_weather = WeatherFacts(
+        location="Bhopal",
+        latitude=23.25,
+        longitude=77.41,
+        timestamp="2026-09-23T18:00:00",
+        temperature_2m=28.0,
+        wind_speed_10m=6.0,
+        wind_gusts_10m=10.0,
+        precipitation=0.0,
+        precipitation_probability=5.0,
+        uv_index=2.0,
+        weather_code=1,
+        weather_condition="clear",
+        time_scope="this evening",
+    )
+
+    with patch.object(WeatherService, "fetch_weather", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.side_effect = [turn1_weather, turn2_weather]
+
+        # Turn 1: Establish Bhopal + Cycling
+        state_turn1 = {
+            "session_id": sid,
+            "user_query": "Is cycling safe in Bhopal today?",
+            "intent": None,
+            "location": None,
+            "weather_facts": None,
+            "advisory": None,
+            "matched_sops": [],
+            "selected_sop": None,
+            "decision_trace": [],
+            "error_type": None,
+            "error_message": None,
+            "final_response": None,
+            "is_validated": False,
+            "fallback_used": False,
+        }
+        res1 = await weather_bot_graph.ainvoke(state_turn1)
+        assert res1["location"].name.lower() == "bhopal"
+
+        # Turn 2: Follow-up "What about this evening?" (no location or activity specified)
+        state_turn2 = {
+            "session_id": sid,
+            "user_query": "What about this evening?",
+            "intent": None,
+            "location": None,
+            "weather_facts": None,
+            "advisory": None,
+            "matched_sops": [],
+            "selected_sop": None,
+            "decision_trace": [],
+            "error_type": None,
+            "error_message": None,
+            "final_response": None,
+            "is_validated": False,
+            "fallback_used": False,
+        }
+        res2 = await weather_bot_graph.ainvoke(state_turn2)
 
     # Inherited location from Turn 1
     assert res2["location"] is not None

@@ -246,6 +246,29 @@ class DeterministicSOPEngine:
                 logger.warning(f"Weather fact field '{field}' not found in weather data or advisory metadata")
                 return False
 
+        # Numeric comparisons tolerate very small boundary drift from live weather readings,
+        # so a value like 27.9C still honors a 28C policy threshold without weakening the
+        # rest of the matching logic.
+        try:
+            actual_num = float(actual)
+            value_num = float(value)
+            tolerance = 0.25
+
+            if operator == ">":
+                return actual_num > value_num
+            elif operator == ">=":
+                return actual_num >= value_num - tolerance
+            elif operator == "<":
+                return actual_num < value_num + tolerance
+            elif operator == "<=":
+                return actual_num <= value_num + tolerance
+            elif operator == "==":
+                return abs(actual_num - value_num) <= tolerance
+            elif operator == "!=":
+                return abs(actual_num - value_num) > tolerance
+        except (TypeError, ValueError):
+            pass
+
         # Compare based on operator
         if operator == ">":
             return actual > value

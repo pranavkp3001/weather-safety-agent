@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import logging
 from typing import Optional, Any, Literal
@@ -178,35 +179,55 @@ class WeatherService:
             "timezone": "auto"
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(self.base_url, params=params)
-                if response.status_code != 200:
-                    logger.error(f"Open-Meteo Forecast HTTP {response.status_code}: {response.text}")
-                    raise WeatherServiceError(f"Weather API returned HTTP {response.status_code}")
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.get(self.base_url, params=params)
+                    if response.status_code != 200:
+                        if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                            logger.warning(
+                                "Transient Open-Meteo error on attempt %s/%s: HTTP %s - %s. Retrying.",
+                                attempt + 1,
+                                3,
+                                response.status_code,
+                                response.text[:200],
+                            )
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                        logger.error(f"Open-Meteo Forecast HTTP {response.status_code}: {response.text}")
+                        raise WeatherServiceError(f"Weather API returned HTTP {response.status_code}")
 
-                data = response.json()
-                current = data.get("current")
-                if not current:
-                    raise WeatherServiceError("Weather API response did not contain 'current' data block")
+                    data = response.json()
+                    current = data.get("current")
+                    if not current:
+                        raise WeatherServiceError("Weather API response did not contain 'current' data block")
 
-                # If a specific time reference like "evening", "tonight", "afternoon" was requested,
-                # resolve from hourly forecast if available
-                facts = self._extract_facts(
-                    data=data,
-                    location_name=location_name,
-                    latitude=latitude,
-                    longitude=longitude,
-                    time_reference=time_reference
-                )
-                return facts
+                    # If a specific time reference like "evening", "tonight", "afternoon" was requested,
+                    # resolve from hourly forecast if available
+                    facts = self._extract_facts(
+                        data=data,
+                        location_name=location_name,
+                        latitude=latitude,
+                        longitude=longitude,
+                        time_reference=time_reference
+                    )
+                    return facts
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt < 2:
+                    logger.warning("Network error contacting Open-Meteo (attempt %s/%s): %s. Retrying.", attempt + 1, 3, exc)
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                logger.error(f"Network error contacting Open-Meteo: {exc}")
+                raise WeatherServiceError(f"Network error contacting weather service: {str(exc)}") from exc
+            except (KeyError, ValueError) as exc:
+                logger.error(f"Malformed Open-Meteo payload: {exc}")
+                raise WeatherServiceError(f"Malformed weather data received: {str(exc)}") from exc
 
-        except httpx.RequestError as exc:
-            logger.error(f"Network error contacting Open-Meteo: {exc}")
-            raise WeatherServiceError(f"Network error contacting weather service: {str(exc)}") from exc
-        except (KeyError, ValueError) as exc:
-            logger.error(f"Malformed Open-Meteo payload: {exc}")
-            raise WeatherServiceError(f"Malformed weather data received: {str(exc)}") from exc
+        if last_error is not None:
+            raise WeatherServiceError(f"Network error contacting weather service: {str(last_error)}")
+        raise WeatherServiceError("Weather API request failed after retries")
 
     def _extract_facts(
         self,
