@@ -1,0 +1,10 @@
+{
+  "permission": {
+    "read": {
+      "C:/Users/Jayanth K/Desktop/medibuddy/.kilo/gsd-core/*": "allow"
+    },
+    "external_directory": {
+      "C:/Users/Jayanth K/Desktop/medibuddy/.kilo/gsd-core/*": "allow"
+    }
+  }
+}
