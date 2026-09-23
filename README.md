@@ -4,6 +4,12 @@ WeatherBuddy is a policy-first weather advisory assistant that matches live weat
 
 The system separates concerns strictly: the LLM interprets user intent and communicates results; Open-Meteo supplies live weather facts; a deterministic SOP engine makes all safety decisions. The LLM never invents safety advice.
 
+## Live Demo
+
+**Live Application:** https://weather-safety-agent-2b273b3yfkb579eykrty9y.streamlit.app/
+
+**Backend API:** https://weather-safety-agent.onrender.com
+
 ---
 
 ## Core Design Principle
